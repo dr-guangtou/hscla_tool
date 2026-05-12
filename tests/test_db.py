@@ -22,10 +22,28 @@ GOOD_DOC: dict = {
     "releases": {
         "la2020": {
             "name": "HSCLA2020",
+            "release_version_token": "hscla2020",
             "tools": {
                 "sql_search": "https://hscla.mtk.nao.ac.jp/datasearch/",
                 "das_cutout": "https://hscla.mtk.nao.ac.jp/das_cutout/la2020/",
             },
+        },
+    },
+    "sql_api": {
+        "login_url": "https://hscla.mtk.nao.ac.jp/account/api/session",
+        "base_url": "https://hscla.mtk.nao.ac.jp/datasearch/api/catalog_jobs/",
+        "endpoints": {
+            "preview": "preview",
+            "submit": "submit",
+            "status": "status",
+            "download": "download",
+            "delete": "delete",
+            "cancel": "cancel",
+        },
+        "client_version": 20190924.1,
+        "status_values": {
+            "in_progress": ["waiting", "running"],
+            "terminal": ["done", "error", "canceled", "deleted"],
         },
     },
     "command_line_tools": {
@@ -105,6 +123,18 @@ def test_real_yaml_tool_url_resolves() -> None:
     url = db.get_tool_url("la2020", "das_cutout")
     assert url.startswith("https://")
     assert "la2020" in url
+
+
+def test_real_yaml_sql_api_endpoints() -> None:
+    api = db.get_sql_api()
+    assert api["login_url"].startswith("https://")
+    assert api["base_url"].endswith("/")
+    assert {"submit", "status", "download", "delete", "preview"} <= set(api["endpoints"])
+    assert set(api["status_values"]) >= {"in_progress", "terminal"}
+
+
+def test_real_yaml_release_version_token() -> None:
+    assert db.get_release_version_token("la2020") == "hscla2020"
 
 
 def test_list_tables_filter_by_kind() -> None:

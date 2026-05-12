@@ -52,17 +52,22 @@ Goal: a tiny, testable foundation that everything else builds on.
 
 ---
 
-## Phase 2 — SQL client
+## Phase 2 — SQL client *(done)*
 
 Goal: get arbitrary SQL queries working against HSCLA2020.
 
-- [ ] Port `hsc_sandbox/step1/python/sql_query.py` into `hscla_tool/sql.py` and adapt the API endpoint to HSCLA (`https://hscla.mtk.nao.ac.jp/datasearch/api/catalog_jobs/`).
-- [ ] Add `release="la2020"` as the only supported release in v0.
-- [ ] Provide `run_sql(sql, *, fmt="csv") -> pandas.DataFrame` plus a streaming variant for large outputs.
-- [ ] Cache job outputs under `${HSCLA_TOOL_CACHE}/sql/<hash>.csv`.
-- [ ] Network test (skipped unless `HSCLA_USR` is set): cone search around `covered_lsbg` returns >0 rows from `la2020.forced`; same against `uncovered_blank` returns 0 rows.
+- [x] Live-probed HSCLA endpoints: login at `/account/api/session` (POST `{email,password}`, returns `LAAUTH_SESSION` cookie), API at `/datasearch/api/catalog_jobs/` with `submit`/`status`/`download`/`delete`/`cancel`/`preview` suffixes.
+- [x] Confirmed the wire-format `release_version` token is `hscla2020` (not the short `la2020`); recorded in the knowledge base as `releases.la2020.release_version_token` and exposed via `db.get_release_version_token()`.
+- [x] Wrote `hscla_tool/sql.py` with `HscLaClient` (session-cookie login, `preview_sql`, `submit_sql`, `job_status`, `wait_for_job`, `download_job`, `delete_job`, `cancel_job`, `run_sql`) plus module-level `run_sql` and `preview_sql` shortcuts.
+- [x] `run_sql` defaults to `csv`, caches results under `${HSCLA_TOOL_CACHE}/sql/<hash>.csv`, deletes the job server-side after download.
+- [x] CSV parser handles both metainfo modes (off → one `#`-prefixed header line; on → several `#` lines, last one is the header).
+- [x] Tests: 13 offline unit tests with a fake `requests.Session`, plus one live test gated by `HSCLA_LIVE_TESTS=1`. Full suite: 37 passed, 1 skipped.
+- [x] End-to-end smoke test against the real server (submit → poll → download → DataFrame) succeeded.
 
-**Acceptance.** A two-line script can list `object_id` and band-detection flags for objects in the Perseus fixture box.
+### Review (2026-05-12)
+- The HSCLA SQL service uses **session-cookie auth** (login → `LAAUTH_SESSION` → reuse), which is a hard break from the HSC-SSP PDR pattern that the `hsc_sandbox/step1/sql_query.py` was built around. Catalog-job endpoints still want the credential in the body too, and a `clientVersion` float. Recorded in `sql_api` in the YAML and in lessons.
+- `preview` enforces a ~5 s server-side timeout — anything touching `forced` table cone searches will time out via preview. So `preview_sql` is *only* for fast metadata lookups, and the full submit/poll path is needed for real catalog queries.
+- The live schema has **28 tables**, including some not in `README.md`: `forced_conv_flag`, `meas_conv_flag`, `mosaicframe`, `warped`, `wcs`, `frame_hpx11`, `mosaic_hpx11`, `warped_hpx11`, `random`. Added to `hscla_db.yaml` with short descriptions.
 
 ---
 

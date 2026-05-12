@@ -38,6 +38,10 @@ releases:
       name: hscPipe
       version: "8"
       sibling_release: HSC-SSP PDR3
+    # `release_version_token` is the literal string the SQL API expects in
+    # the `release_version` field of a catalog_job. The HSCLA SQL service
+    # also accepts `hscla2014` and `hscla2016` for older releases.
+    release_version_token: hscla2020
     tools:
       sql_search: https://hscla.mtk.nao.ac.jp/datasearch/
       schema_browser: https://hscla.mtk.nao.ac.jp/schema/
@@ -49,6 +53,40 @@ releases:
       das_search_manual: https://hscla.mtk.nao.ac.jp/das_search/la2020/usage.html
       file_tree: https://hscla.mtk.nao.ac.jp/archive/files/la2020/
     data_access_page: https://hscla.mtk.nao.ac.jp/doc/data-access-hscla2020/
+
+# HTTP endpoints for the HSCLA catalog SQL service. Confirmed live on
+# 2026-05-12. Authentication is session-cookie based (NOT credential-in-body
+# like the HSC-SSP PDR API): POST email+password to the login endpoint,
+# capture the `LAAUTH_SESSION` cookie, then send it with every subsequent
+# request. The catalog-job endpoints additionally accept (and require) the
+# `credential` object in the body and a `clientVersion` float.
+sql_api:
+  login_url: https://hscla.mtk.nao.ac.jp/account/api/session
+  base_url: https://hscla.mtk.nao.ac.jp/datasearch/api/catalog_jobs/
+  endpoints:
+    preview: preview     # fast, short-timeout, returns JSON result rows
+    submit: submit       # start an async job
+    status: status       # poll a job
+    download: download   # stream CSV / FITS / etc.
+    delete: delete       # remove a finished job
+    cancel: cancel       # stop a running job
+  client_version: 20190924.1
+  out_formats:
+    - csv
+    - csv.gz
+    - sqlite3
+    - fits
+    - numpygres-fits
+    - fast-fits
+  status_values:
+    in_progress:
+      - waiting
+      - running
+    terminal:
+      - done
+      - error
+      - canceled
+      - deleted
 
 # Official NAOJ command-line scripts. We treat these as a reference; we may
 # rewrite them in our package when there is a real reason (modern Python,
@@ -101,6 +139,31 @@ catalogs:
       kind: metadata
       description: Per-CCD photometric calibration. Zeropoints here come from mosaicking (jointcal.py).
 
+    # ---- Tract / patch / single-frame geometry ----
+    mosaicframe:
+      kind: metadata
+      description: Join table linking each coadd patch in `mosaic` to the input single-CCD frames in `frame`.
+    warped:
+      kind: metadata
+      description: Per-CCD warped-frame metadata (frames after PSF homogenization and resampling onto the coadd grid).
+    wcs:
+      kind: metadata
+      description: WCS solutions and footprint vertices for the coadd patches.
+    frame_hpx11:
+      kind: metadata
+      description: HEALPix-level-11 index over `frame` for fast spatial joins.
+    mosaic_hpx11:
+      kind: metadata
+      description: HEALPix-level-11 index over `mosaic` for fast spatial joins.
+    warped_hpx11:
+      kind: metadata
+      description: HEALPix-level-11 index over `warped` for fast spatial joins.
+
+    # ---- Sky randoms ----
+    random:
+      kind: metadata
+      description: Uniform random points within the HSCLA footprint, used for selection-function and clustering work.
+
     # ---- Forced photometry (positions fixed by reference band) ----
     forced:
       kind: forced
@@ -119,6 +182,11 @@ catalogs:
       role: detail
       joins_on: object_id
       description: PSF-convolved aperture fluxes.
+    forced_conv_flag:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Flags for `forced_conv` (PSF-convolved aperture photometry).
     forced_flux:
       kind: forced
       role: detail
@@ -171,6 +239,11 @@ catalogs:
       role: detail
       joins_on: object_id
       description: Unforced PSF-convolved aperture photometry.
+    meas_conv_flag:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Flags for `meas_conv` (unforced PSF-convolved aperture photometry).
     meas_flux:
       kind: meas
       role: detail

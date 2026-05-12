@@ -74,6 +74,7 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
     required_top_keys = {
         "archive",
         "releases",
+        "sql_api",
         "command_line_tools",
         "catalogs",
         "photometry",
@@ -114,6 +115,24 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
         _require_keys(tbody, ("kind", "description"), source, ctx)
         if not isinstance(tbody["description"], str) or not tbody["description"].strip():
             raise KnowledgeBaseError(f"{source}: {ctx}.description must be a non-empty string")
+
+    sql_api = data["sql_api"]
+    _require_keys(
+        sql_api,
+        ("login_url", "base_url", "endpoints", "client_version", "status_values"),
+        source,
+        "sql_api",
+    )
+    _check_url(sql_api["login_url"], source, "sql_api.login_url")
+    _check_url(sql_api["base_url"], source, "sql_api.base_url")
+    endpoints = sql_api["endpoints"]
+    if not isinstance(endpoints, dict) or not endpoints:
+        raise KnowledgeBaseError(f"{source}: sql_api.endpoints must be a non-empty mapping")
+    for key in ("submit", "status", "download", "delete", "preview"):
+        if key not in endpoints:
+            raise KnowledgeBaseError(f"{source}: sql_api.endpoints missing required key {key!r}")
+    status_values = sql_api["status_values"]
+    _require_keys(status_values, ("in_progress", "terminal"), source, "sql_api.status_values")
 
     fixtures = data["test_regions"]
     if not isinstance(fixtures, dict) or not fixtures:
@@ -224,3 +243,30 @@ def get_where_clause_functions(*, path: str | Path | None = None) -> list[dict[s
     """Return the list of server-side WHERE-clause helpers (coneSearch etc.)."""
 
     return list(load(path)["where_clause_functions"])
+
+
+def get_sql_api(*, path: str | Path | None = None) -> dict[str, Any]:
+    """Return the HTTP endpoint metadata for the HSCLA catalog SQL service."""
+
+    return dict(load(path)["sql_api"])
+
+
+def get_release_version_token(release: str, *, path: str | Path | None = None) -> str:
+    """Return the literal `release_version` string the SQL API expects.
+
+    Example: `get_release_version_token('la2020')` → `'hscla2020'`. The
+    short release key (`la2020`) is what we use everywhere else in the
+    knowledge base; this helper is the one place that maps it to the
+    server's wire format.
+    """
+
+    releases = load(path)["releases"]
+    if release not in releases:
+        raise KeyError(f"Unknown HSCLA release {release!r}. Known: {sorted(releases)}")
+    body = releases[release]
+    token = body.get("release_version_token")
+    if not isinstance(token, str) or not token:
+        raise KnowledgeBaseError(
+            f"releases.{release}.release_version_token is missing or empty in the knowledge base"
+        )
+    return token
