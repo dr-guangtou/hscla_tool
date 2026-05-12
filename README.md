@@ -46,9 +46,17 @@ gotchas in [`docs/lessons.md`](docs/lessons.md).
   PSF kernel as a single-HDU FITS (sum-normalized to 1.0), cached by
   content hash. Returns a `Psf` dataclass with `.array` and `.wcs()`
   helpers. `cutout.NoCoverageError` is raised when there is no data.
+- `hscla_tool.crossmatch` — `match(table, ra_col=..., dec_col=...,
+  radius_arcsec=1.0)` crossmatches a pandas DataFrame against
+  `la2020.forced` and returns matched rows with `object_id` and
+  `match_distance` (built on top of `sql.run_sql`, no separate
+  upload service).
+- `hscla_tool.archive` — `download_coadd_image(tract, patch, band)`
+  and `download_forced_catalog(...)` (plus a generic
+  `download_patch_file(..., kind=)`) hit the HSCLA file tree
+  directly, resumable via HTTP `Range:` requests.
 
-Still to come (see [`docs/todo.md`](docs/todo.md)): crossmatch /
-direct file-tree download / CLI.
+Still to come (see [`docs/todo.md`](docs/todo.md)): CLI.
 
 ## Credentials
 
@@ -178,6 +186,67 @@ finally:
 PSFs share the same `NoCoverageError` (re-exported from `cutout`)
 when the region has no HSCLA data, and the same content-hash cache
 layout under `${HSCLA_TOOL_CACHE}/psfs/`.
+
+### Crossmatch *(placeholder — currently very slow)*
+
+> **HSCLA's SQL crossmatch is slow.** A three-row input takes
+> **30–45 minutes** on the server side even with the most
+> index-friendly query shape we have found. The module below is
+> correct and tested live, but in practice you'll usually want one of
+> the alternatives below until NAOJ improves the service.
+
+Alternatives that are usually faster on this archive:
+
+- Crossmatch locally against the Parquet mirror of `la2020.forced`
+  (planned, not yet implemented).
+- Pull the patch-level forced catalogs via
+  [`hscla_tool.archive`](#bulk-archive-download) and crossmatch
+  inside pandas.
+
+API for when you do want to use it:
+
+```python
+import pandas as pd
+from hscla_tool import crossmatch
+
+inputs = pd.DataFrame({
+    "name": ["a", "b"],
+    "ra":   [49.265, 49.270],
+    "dec":  [41.248, 41.250],
+})
+matches = crossmatch.match(
+    inputs, id_col="name",
+    radius_arcsec=1.0,
+    extra_columns=("i_cmodel_mag", "i_cmodel_magerr"),
+)
+```
+
+`crossmatch.match` emits a `UNION ALL` of per-row `coneSearch` calls
+with literal coordinates and runs the result through `sql.run_sql`,
+so the cache, login, and poll-loop machinery are shared with every
+other SQL query. Returns one row per (input row, matched HSCLA
+object) inside the radius; pass `nearest_only=True` to keep only the
+closest match per input.
+
+### Bulk archive download
+
+```python
+from hscla_tool import archive
+
+# Coadd image for Perseus, tract 15548, patch 1,6 in HSC-I (~136 MB).
+out = archive.download_coadd_image(tract=15548, patch="1,6", band="HSC-I")
+print(out.path, out.bytes)
+
+# Or any of the nine per-patch file kinds:
+forced = archive.download_patch_file(
+    tract=15548, patch="1,6", band="HSC-I", kind="forced_src",
+)
+```
+
+Files land under `${HSCLA_TOOL_CACHE}/archive/<band>/<tract>/<patch>/`
+mirroring the upstream layout. Downloads are resumable: an
+interrupted download leaves a `.tmp` next to the destination and the
+next call sends `Range: bytes=<offset>-` to pick up where it stopped.
 
 ## Reference: HSCLA endpoints and data
 

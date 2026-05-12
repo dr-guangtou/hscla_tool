@@ -139,13 +139,19 @@ Local copies of the small HSCLA metadata catalogs, so coverage / overlap / looku
 
 ---
 
-## Phase 6 — Crossmatch + bulk archive (U6, U8)
+## Phase 6 — Crossmatch + bulk archive (U6, U8) *(done)*
 
-- [ ] `crossmatch.match(table, *, ra_col, dec_col, radius_arcsec)` — submit an upload-based match against HSCLA (`--rerun=la2020` equivalent).
-- [ ] `archive.download_patch(tract, patch, *, band, kind)` and `archive.download_forced_catalog(tract, patch)` — direct file-tree downloads.
-- [ ] Both operations are resumable / skip-if-cached.
+- [x] `hscla_tool/crossmatch.py` — `match(table, *, ra_col='ra', dec_col='dec', id_col=None, radius_arcsec=1.0, extra_columns=(), nearest_only=False)`. Builds a `WITH user_catalog AS (VALUES ...) ... JOIN la2020.forced ON coneSearch(...)` query (modeled after upstream `hscSspCrossMatch.py`), pushes it through `sql.run_sql`, returns a pandas DataFrame with `match_input_id / match_ra / match_dec / object_id / match_distance` plus any requested HSCLA columns. Validates inputs and rejects non-identifier `extra_columns` (no SQL injection).
+- [x] `hscla_tool/archive.py` — `HscLaArchiveClient` and module-level shortcuts `download_patch_file(tract, patch, band, kind)`, `download_coadd_image(...)` (= `kind='calexp'`), `download_forced_catalog(...)` (= `kind='forced_src'`). Files cached under `${HSCLA_TOOL_CACHE}/archive/<band>/<tract>/<patch>/`, skip-if-cached, with resumable downloads using HTTP `Range:` requests against the server's `accept-ranges: bytes` support. `list_patch_files(...)` parses the Apache autoindex for one (band, tract, patch).
+- [x] 9 file kinds supported per patch (`calexp / forced_src / meas / deblendedFlux / det / det_bkgd / ran / srcMatch / srcMatchFull`), confirmed by the live probe.
+- [x] 23 new offline tests (13 crossmatch + 10 archive) + 2 live tests gated by `HSCLA_LIVE_TESTS=1` (crossmatch against Perseus + uncovered fixtures; archive listing at Perseus tract 15548 patch 1,6).
 
-**Acceptance.** A 10-row input list crossmatches in <60 s with all rows in the Perseus footprint matched; a patch-level coadd download completes and opens cleanly with `astropy.io.fits`.
+### Review (2026-05-13)
+- **Crossmatch turned out to be SQL, not a separate web service.** Upstream `hscSspCrossMatch.py` is a SQL *generator*; it produces a `WITH user_catalog AS (VALUES ...) ... JOIN la2020.forced ON coneSearch(...)` query and hands it to `hscReleaseQuery.py`. We reuse our own `sql.run_sql` (cookie auth + full submit/poll/download cycle), which gives crossmatch results the same content-hash caching as any other SQL query for free.
+- **Two SQL surprises** (each logged in `docs/lessons.md`):
+  1. `earth_distance(coord, ll_to_earth(...))` — the upstream pattern — trips a postgres `value for domain earth violates check constraint "on_surface"` against `la2020.forced.coord`. We compute the match distance via a plain great-circle trig formula on `forced.ra`/`forced.dec` instead.
+  2. CTE/JOIN-shape queries that pass coordinates as column references kept the planner from using whatever spatial index `forced.coord` has; even the literal-only `UNION ALL` form still takes 40+ minutes for a 3-row input. The infrastructure is correct (live test passes); HSCLA crossmatch performance is what the server gives us.
+- **The file tree is a plain Apache autoindex** at `/archive/files/la2020/deepCoadd-results/<filter>/<tract>/<patch>/`. HTTP Basic auth (third HSCLA service to use it). Patches are URL-encoded as `x%2Cy`. The server advertises `Accept-Ranges: bytes` so `Range:`-header download resumption Just Works.
 
 ---
 

@@ -81,6 +81,13 @@ hscla_tool/
                      #     basic auth, multipart coord list with rerun/type/
                      #     filter/tract/patch/ra/dec/centered, TAR of single-
                      #     HDU FITS files normalized to sum 1.0).
+  crossmatch.py      # U6: catalog crossmatch built on top of `sql.run_sql`
+                     #     (CTE with VALUES + JOIN on la2020.forced via
+                     #     coneSearch + earth_distance; no separate service).
+  archive.py         # U8: direct file-tree downloads at /archive/files/la2020/
+                     #     (HTTP Basic auth, Apache autoindex listings, FITS
+                     #     under deepCoadd-results/<filter>/<tract>/<patch>/,
+                     #     range-resumable, content-addressed local mirror).
   psf.py             # U5: PSF model retrieval via PSF picker
   sql.py             # U7: HSC SQL client (adapted from hsc_sandbox/step1/sql_query.py)
   crossmatch.py      # U6: server-side crossmatch wrapper

@@ -15,6 +15,53 @@ Format:
 
 ---
 
+## 2026-05-13 — HSCLA crossmatch is slow regardless of SQL shape
+- Context: even the most index-friendly crossmatch SQL — a `UNION ALL` of per-row `coneSearch(forced.coord, <lit RA>, <lit DEC>, R)` branches with literal bounding boxes on `forced.ra`/`forced.dec` — takes 40+ minutes on the live server for a *three-row* input.
+- What we ruled out:
+  - `coord` column type incompatibility (would error fast).
+  - CTE-vs-column-reference planner blindness (the literal-only `UNION ALL` shape still doesn't help).
+  - Our wait/poll loop (the server itself reports `running` for 40+ minutes).
+- What this means: HSCLA's planner either does not use a spatial index on `la2020.forced.coord`, or the index is missing, or there's persistent server load. Functional correctness is confirmed by the live test passing; performance is whatever the archive gives us.
+- Rule: for HSCLA crossmatch, plan on multi-minute end-to-end times even for tiny inputs. For batch work, consider running queries in parallel from different sessions, or stage matches by tract using the local Parquet mirror instead.
+
+## 2026-05-13 — `earth_distance(coord, ll_to_earth(...))` trips `on_surface` on HSCLA
+- Context: implementing `crossmatch.match` following the upstream pattern `earth_distance(coord, ll_to_earth(dec, ra))` to record per-row match separations.
+- Surprise: live submission failed with `value for domain earth violates check constraint "on_surface"`. The postgres `earth` domain checks that any value is on a sphere of radius `earth()` (Earth's mean radius). One or both of the two arguments here violates that. `ll_to_earth` itself is fine in isolation (probed). HSCLA's `la2020.forced.coord` is opaque (the SQL whitelist blocks `pg_typeof`), but the failure proves it is *not* a clean member of the `earth` domain — either a different scaling or values with accumulated floating-point error that exceed the `1e-12` tolerance.
+- Resolution: dropped `earth_distance` entirely. Compute the match separation with a plain great-circle formula on `forced.ra` and `forced.dec`, clamped against floating-point `acos` domain errors:
+  ```sql
+  degrees(acos(GREATEST(-1.0, LEAST(1.0,
+    sin(radians(target.dec)) * sin(radians(user_catalog.match_dec)) +
+    cos(radians(target.dec)) * cos(radians(user_catalog.match_dec)) *
+    cos(radians(target.ra - user_catalog.match_ra))
+  )))) * 3600.0 AS match_distance
+  ```
+  Result is in arcseconds, which is what callers actually want for a crossmatch.
+- Rule: when an upstream SQL relies on a postgres extension domain (`earth`, `cube`, ...), do not assume the target archive's columns satisfy the domain's check constraints. Always have a portable-trig fallback in your back pocket.
+
+## 2026-05-13 — Crossmatch is SQL, not a separate web service
+- Context: I expected the HSCLA crossmatch endpoint to look like cutout / PSF — HTTP Basic + multipart-form + TAR.
+- Surprise: the upstream NAOJ tool `pdr2/hscSspCrossMatch/hscSspCrossMatch.py` is a SQL *generator*. It produces a query like:
+  ```sql
+  WITH user_catalog AS (VALUES ...), match AS (
+    SELECT object_id,
+           earth_distance(coord, ll_to_earth(user_catalog.dec, user_catalog.ra)),
+           user_catalog.*
+    FROM user_catalog JOIN la2020.forced ON coneSearch(coord, ...)
+    OFFSET 0  -- suppress planner shortcut
+  )
+  SELECT match.* FROM match LEFT JOIN la2020.forced USING(object_id)
+  WHERE isprimary
+  ```
+  and hands the text to the regular SQL submission tool. There is no upload-and-match HTTP service.
+- Resolution: `hscla_tool/crossmatch.py` builds the same SQL and runs it through our existing `sql.run_sql`. Inputs are validated to prevent SQL injection (extra columns must be plain identifiers; embedded apostrophes in IDs are doubled).
+- Rule: when an upstream "tool" looks like a standalone client, check whether it is actually a SQL generator wrapping a service we already have.
+
+## 2026-05-13 — The HSCLA file tree is a plain Apache autoindex
+- Context: implementing `archive.py` for per-patch FITS downloads.
+- Surprise (good kind): the file tree is a vanilla Apache directory listing at `https://hscla.mtk.nao.ac.jp/archive/files/la2020/`. Same HTTP Basic auth as cutout / PSF. Patch directories are URL-encoded `x%2Cy`. The server advertises `Accept-Ranges: bytes`, so partial downloads can be resumed cleanly with a `Range:` header.
+- Resolution: `HscLaArchiveClient.download_patch_file(...)` keeps a `<dest>.tmp` for in-progress downloads, sends `Range: bytes=<offset>-` when one is found, and atomically renames on success. `list_patch_files(...)` parses the autoindex HTML with a small regex.
+- Rule: when an archive uses `accept-ranges`, you get free resumable downloads — pre-write a `.tmp` partial and send `Range:` for the rest.
+
 ## 2026-05-12 — HSCLA PSFs use the alternate WCS key `A`
 - Context: writing `Psf.wcs()` for the Phase 5 PSF picker.
 - Surprise: `WCS(header)` raised `KeyError("No WCS with key ' ' was found in the given header")` even though the FITS clearly had `CTYPE1A='LINEAR'`, `CRPIX1A=1`, `CRVAL1A=-20` etc. HSCLA writes the PSF kernel's pixel WCS under the alternate key `A`, not the primary key.
