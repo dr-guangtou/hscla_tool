@@ -27,10 +27,18 @@ gotchas in [`docs/lessons.md`](docs/lessons.md).
   `preview_sql` (fast metadata lookups) and `run_sql` (full
   submit / poll / download → `pandas.DataFrame`, results cached by
   content hash).
+- `hscla_tool.coverage` — `region_coverage(ra, dec, size_deg=...)`
+  and `frame_coverage(...)` answer "is there HSC data here, in which
+  bands, in which patches / how many visits?". Returns frozen
+  dataclasses with a `.covered` flag; uncovered regions return
+  empty results without raising. Pass `source='local'` to use the
+  local Parquet mirror (faster + uses exact patch corners).
+- `hscla_tool.mirror` — `build_mirror(table)` materializes one
+  whole HSCLA metadata catalog as a single Parquet file under
+  `/Volumes/galaxy/hsc/la2020/` (override with `HSCLA_MIRROR_ROOT`).
 
-Still to come (see [`docs/todo.md`](docs/todo.md)): coverage / DAS
-cutout / mask decoding / PSF picker / crossmatch / direct file-tree
-download / CLI.
+Still to come (see [`docs/todo.md`](docs/todo.md)): DAS cutout / mask
+decoding / PSF picker / crossmatch / direct file-tree download / CLI.
 
 ## Credentials
 
@@ -73,6 +81,44 @@ print(df)
 
 Repeated calls with the same SQL are served from the local cache
 (`${HSCLA_TOOL_CACHE}` if set, otherwise `./outputs/sql/`).
+
+### Coverage query
+
+```python
+from hscla_tool import coverage
+
+cov = coverage.region_coverage(
+    ra=49.265759499639465, dec=41.24859266109193, size_deg=0.03
+)
+print(cov.filters)              # ('HSC-G', 'HSC-I', 'HSC-R', 'HSC-Z')
+print(cov.mean_seeing_per_band) # {'HSC-G': 0.69, 'HSC-I': 0.64, ...}
+for p in cov.patches:
+    print(p.band, p.tract, p.patch_s, p.skymap_id, p.seeing)
+
+frames = coverage.frame_coverage(49.27, 41.24, size_deg=0.03)
+print({b: (s.n_frames, s.n_visits) for b, s in frames.band_summary.items()})
+```
+
+### Local catalog mirror (faster and more precise)
+
+Build a Parquet copy of the small metadata tables once, then run
+coverage queries entirely offline:
+
+```bash
+uv run python -m hscla_tool.mirror status            # what's already on disk?
+uv run python -m hscla_tool.mirror build mosaic      # ~1 min
+uv run python -m hscla_tool.mirror build frame       # ~5–15 min
+```
+
+```python
+cov = coverage.region_coverage(49.27, 41.24, size_deg=0.03, source="local")
+```
+
+Mirrors live at `/Volumes/galaxy/hsc/la2020/<table>.parquet` by
+default; override the directory by setting `HSCLA_MIRROR_ROOT`. The
+local path uses the *real* patch corners with an RA=0 wrap guard,
+which is strictly tighter than the server's patch-center proximity
+filter.
 
 ## Reference: HSCLA endpoints and data
 

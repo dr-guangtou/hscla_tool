@@ -10,6 +10,7 @@ dependencies = [
     "astropy>=7.0",
     "numpy>=2.0",
     "pandas>=2.2",
+    "pyarrow>=17.0",
     "pyyaml>=6.0",
     "requests>=2.32",
     "tqdm>=4.66",

@@ -87,6 +87,22 @@ Goal: get arbitrary SQL queries working against HSCLA2020.
 
 ---
 
+## Bonus — Local Parquet mirrors *(done)*
+
+Local copies of the small HSCLA metadata catalogs, so coverage / overlap / lookup queries can run offline and use the *real* per-patch corner coordinates instead of the server-side proximity test.
+
+- [x] `pyarrow` added to runtime deps; `config.MirrorRootMissing` + `config.mirror_root()` resolver (env: `HSCLA_MIRROR_ROOT`, default `/Volumes/galaxy/hsc/la2020/`).
+- [x] `hscla_tool/mirror.py`: `build_mirror(table)` submits `SELECT * FROM la2020.<table>` as `csv.gz`, streams to a Parquet file at `mirror_path(table)`; `load_mirror(table)` reads it back; `is_mirrored(table)` is a cheap check. CLI: `uv run python -m hscla_tool.mirror build {mosaic|frame|mosaicframe|wcs}` and `... status`.
+- [x] `coverage.region_coverage(..., source='local')` reads the mosaic Parquet, runs a true per-patch corner-AABB overlap with an RA-wrap guard (patches whose corner span exceeds 180° are dropped — they would otherwise match the whole sky).
+- [x] `coverage.frame_coverage(..., source='local', detailed=False)` reads the frame Parquet and applies the same frame-center proximity rule as the server query (frame has no usable CCD corners).
+- [x] **`mosaic` mirror built live**: 464,840 rows × 41 cols, 47 s end-to-end, 72.7 MB gzipped CSV, **51.5 MB Parquet on disk** at `/Volumes/galaxy/hsc/la2020/mosaic.parquet`.
+- [x] **`frame` mirror built live**: 4,163,375 rows × 97 cols, expected ~5-15 min, target `/Volumes/galaxy/hsc/la2020/frame.parquet`.
+- [x] Live local-mirror query: Perseus returns 8 patches across `HSC-G/I/R/Z`, mean seeing 0.53–0.69″; the uncovered fixture returns empty (no antipodal-wrap false positives).
+
+### Review (2026-05-12)
+- The local-mirror path is *more accurate* than the server query, not just faster: it uses the actual patch corners (with a wrap guard) rather than the patch-center proximity approximation. For Perseus, both paths return 4 bands but the local path keeps 8 patches vs the server's 4 (server margin happened to fall short of the second patch row).
+- `mirror.py` is deliberately scoped to the small metadata tables. The big photometry tables (`forced` / `meas` and detail variants) are tens of millions of rows and need a different strategy (per-tract files, partition by band) — out of scope here.
+
 ## Phase 4 — DAS cutout + mask (U3, U4)
 
 - [ ] `cutout.fetch_cutout(ra, dec, *, size_arcsec, band, kind="coadd", with_variance=True, with_mask=True)`.

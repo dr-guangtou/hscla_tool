@@ -65,8 +65,13 @@ hscla_tool/
   config.py          # env-var credentials, cache paths, base URLs
   db.py              # load data/hscla_db.yaml + small helper lookups
   coverage.py        # U1, U2: region -> RegionCoverage / FrameCoverage
-                     #   (patch-center proximity, not coneSearch -- mosaic
-                     #    has no coord column the server's helpers accept)
+                     #   server: patch-center proximity (mosaic has no coord
+                     #     column the spatial helpers accept);
+                     #   local : exact corner-AABB overlap on the Parquet
+                     #     mirror, with an RA=0 wrap guard.
+  mirror.py          # Build + load local Parquet copies of HSCLA metadata
+                     # catalogs (mosaic, frame, mosaicframe, wcs). Used by
+                     # the local branch of coverage.
   cutout.py          # U3, U4: FITS cutout (image+variance+mask) via DAS cutout
   mask.py            # U4: maskbit-plane decoding (named planes)
   psf.py             # U5: PSF model retrieval via PSF picker
@@ -113,6 +118,18 @@ the archive's own division and keeps failure modes isolated.
   `explicit argument` > `HSCLA_TOOL_CACHE` env var > `./outputs/`.
 - Cache keys are derived from the request, not the timestamp, so
   repeat calls are deterministic.
+
+### 5.2a Where local catalog mirrors go
+- Whole-table Parquet mirrors of `mosaic` / `frame` / `mosaicframe` /
+  `wcs` live under `config.mirror_root()`.
+- Resolution order: `explicit argument` > `HSCLA_MIRROR_ROOT` env var
+  > `/Volumes/galaxy/hsc/la2020/` (default external volume).
+- One Parquet file per table, named `<table>.parquet`. Built with
+  `uv run python -m hscla_tool.mirror build <table>`.
+- The bulk photometry tables (`forced`, `meas`, and their detail
+  variants) are **not** part of the mirror layer; they need a
+  different strategy (per-tract files, partitioned by band) and that
+  belongs in a separate module when we get to it.
 
 ### 5.3 Failure modes
 - Missing credentials -> raise a single typed error, message tells the

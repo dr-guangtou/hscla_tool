@@ -120,6 +120,22 @@ command_line_tools:
         Lives under the pdr2 subtree in upstream but works for HSCLA when
         the --rerun=la2020 flag is set.
 
+# Local Parquet mirrors of the small HSCLA metadata catalogs.
+# Built once with `uv run python -m hscla_tool.mirror build <table>`.
+local_mirror:
+  root_env: HSCLA_MIRROR_ROOT
+  default_root: /Volumes/galaxy/hsc/la2020
+  layout: "<root>/<table>.parquet"
+  supported_tables:
+    - mosaic
+    - frame
+    - mosaicframe
+    - wcs
+  notes: >
+    Bulk photometry tables (forced, meas, and their detail variants)
+    are tens of millions of rows and not part of this mirror layer.
+    Mirror them on a per-tract / per-band basis instead.
+
 # SQL catalog inventory for HSCLA2020. `kind` is one of {metadata, forced,
 # meas}. `joins_on` lists the primary object_id-style key used to join to
 # the corresponding summary table (`forced` or `meas`). `preferred_for`

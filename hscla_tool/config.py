@@ -33,6 +33,8 @@ USERNAME_ENV = "HSCLA_USR"
 PASSWORD_ENV = "HSCLA_PWD"
 CACHE_ENV = "HSCLA_TOOL_CACHE"
 DEFAULT_CACHE_DIR = Path("outputs")
+MIRROR_ROOT_ENV = "HSCLA_MIRROR_ROOT"
+DEFAULT_MIRROR_ROOT = Path("/Volumes/galaxy/hsc/la2020")
 
 
 class MissingCredentialsError(RuntimeError):
@@ -69,6 +71,42 @@ def load_credentials(env: dict[str, str] | None = None) -> Credentials:
             f"~/.zshenv; open a new shell or `source ~/.zshenv` to load them."
         )
     return Credentials(username=user, password=pwd)
+
+
+class MirrorRootMissing(RuntimeError):
+    """Raised when the local-mirror root doesn't exist (e.g., the volume isn't mounted)."""
+
+
+def mirror_root(
+    explicit: str | os.PathLike[str] | None = None,
+    *,
+    require_exists: bool = False,
+) -> Path:
+    """Resolve the directory that holds local Parquet mirrors of HSCLA tables.
+
+    Precedence:
+        1. `explicit` argument, if given.
+        2. `HSCLA_MIRROR_ROOT` env var, if set.
+        3. `/Volumes/galaxy/hsc/la2020/` (default external-volume path).
+
+    Pass `require_exists=True` to raise `MirrorRootMissing` if the path
+    is not a directory (typical reason: the external volume isn't
+    mounted). When `require_exists=False`, the path is returned even if
+    it doesn't exist — callers like `build_mirror` will create it.
+    """
+
+    if explicit is not None:
+        path = Path(explicit).expanduser()
+    elif (env_value := os.environ.get(MIRROR_ROOT_ENV)):
+        path = Path(env_value).expanduser()
+    else:
+        path = DEFAULT_MIRROR_ROOT
+    if require_exists and not path.is_dir():
+        raise MirrorRootMissing(
+            f"Local mirror root {path} is not a directory. "
+            f"Mount the volume or set {MIRROR_ROOT_ENV} to override the default."
+        )
+    return path
 
 
 def cache_dir(explicit: str | os.PathLike[str] | None = None) -> Path:

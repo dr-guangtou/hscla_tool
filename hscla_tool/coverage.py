@@ -46,9 +46,14 @@ are both far from the wrap.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
+import pandas as pd
+
+from hscla_tool import mirror as _mirror
 from hscla_tool import sql as _sql
+
+Source = Literal["server", "local"]
 
 # Half-sizes used for the patch-center / frame-center proximity test.
 PATCH_HALF_DEG = 0.12   # HSC coadd patch is roughly 12 arcmin square.
@@ -126,8 +131,10 @@ def region_coverage(
     dec: float,
     *,
     size_deg: float = 0.0,
+    source: Source = "server",
     release: str = DEFAULT_RELEASE,
     client: _sql.HscLaClient | None = None,
+    mirror_df: "pd.DataFrame | None" = None,
 ) -> RegionCoverage:
     """Which HSC bands have a coadd patch overlapping the requested region?
 
@@ -138,13 +145,29 @@ def region_coverage(
     size_deg : float, optional
         Edge of a square box centered on (ra, dec), in degrees. The
         default of 0 makes this a single-point query.
+    source : "server" | "local", optional
+        Where to look up the answer. ``"server"`` (default) sends a
+        small SQL query to HSCLA using the patch-center proximity
+        rule. ``"local"`` reads the local Parquet mirror of
+        ``la2020.mosaic`` and runs an exact axis-aligned-bounding-box
+        overlap test on the four patch corners — strictly tighter and
+        handles tract boundaries correctly. Patches whose corners
+        straddle RA = 0 / 360 are kept on both sides (conservative).
     release : str, optional
         Short release key from `data/hscla_db.yaml`; only `la2020` is
         supported in v0.
     client : HscLaClient, optional
         Reuse an existing client (and its logged-in session) instead of
-        creating a new one.
+        creating a new one. Ignored when ``source='local'``.
+    mirror_df : pandas.DataFrame, optional
+        Inject a preloaded mirror DataFrame (testing hook); when
+        omitted and ``source='local'``, the on-disk Parquet is read.
     """
+
+    if source == "local":
+        return _region_coverage_local(ra, dec, size_deg=size_deg, mirror_df=mirror_df)
+    if source != "server":
+        raise ValueError(f"source must be 'server' or 'local', got {source!r}")
 
     cli = client or _sql.HscLaClient(release=release)
     margin = PATCH_HALF_DEG + max(0.0, float(size_deg)) / 2.0
@@ -158,6 +181,59 @@ def region_coverage(
     result = cli.preview_sql(sql_text)
     rows = result.get("rows", [])
     patches = tuple(_parse_patch_row(row) for row in rows)
+    return _build_region_coverage(patches)
+
+
+def _region_coverage_local(
+    ra: float,
+    dec: float,
+    *,
+    size_deg: float,
+    mirror_df: "pd.DataFrame | None",
+) -> RegionCoverage:
+    """Exact bounding-box overlap against the local mosaic mirror."""
+
+    df = mirror_df if mirror_df is not None else _mirror.load_mirror("mosaic")
+    half = max(0.0, float(size_deg)) / 2.0
+    box_ra_lo, box_ra_hi = float(ra) - half, float(ra) + half
+    box_dec_lo, box_dec_hi = float(dec) - half, float(dec) + half
+    ra_corners = df[["llcra", "ulcra", "urcra", "lrcra"]].to_numpy()
+    dec_corners = df[["llcdec", "ulcdec", "urcdec", "lrcdec"]].to_numpy()
+    patch_ra_min = ra_corners.min(axis=1)
+    patch_ra_max = ra_corners.max(axis=1)
+    patch_dec_min = dec_corners.min(axis=1)
+    patch_dec_max = dec_corners.max(axis=1)
+    # Patches whose corner span exceeds 180 deg are wrapping RA=0; the
+    # min/max envelope can't be trusted for them, so we keep them only
+    # when the query box also crosses (or is very near) the wrap. The
+    # simple guard: if ra_span > 180, drop the bbox test entirely.
+    wrap_mask = (patch_ra_max - patch_ra_min) > 180.0
+    bbox_overlap = (
+        (patch_ra_max >= box_ra_lo)
+        & (patch_ra_min <= box_ra_hi)
+        & (patch_dec_max >= box_dec_lo)
+        & (patch_dec_min <= box_dec_hi)
+    )
+    keep = bbox_overlap & ~wrap_mask
+    matched = df.loc[keep, ["band", "tract", "patch", "patch_s", "skymap_id",
+                            "ra2000", "dec2000", "seeing"]]
+    patches = tuple(
+        PatchInfo(
+            band=str(row.band),
+            tract=int(row.tract),
+            patch=int(row.patch),
+            patch_s=str(row.patch_s),
+            skymap_id=int(row.skymap_id),
+            ra2000=float(row.ra2000),
+            dec2000=float(row.dec2000),
+            seeing=float(row.seeing) if pd.notna(row.seeing) else float("nan"),
+        )
+        for row in matched.sort_values(["band", "tract", "patch"]).itertuples(index=False)
+    )
+    return _build_region_coverage(patches)
+
+
+def _build_region_coverage(patches: tuple[PatchInfo, ...]) -> RegionCoverage:
     filters = tuple(sorted({p.band for p in patches}))
     seeing_by_band: dict[str, float] = {}
     for band in filters:
@@ -176,9 +252,11 @@ def frame_coverage(
     dec: float,
     *,
     size_deg: float = 0.0,
+    source: Source = "server",
     release: str = DEFAULT_RELEASE,
     detailed: bool = False,
     client: _sql.HscLaClient | None = None,
+    mirror_df: "pd.DataFrame | None" = None,
 ) -> FrameCoverage:
     """Which single-CCD frames overlap the requested region?
 
@@ -186,7 +264,20 @@ def frame_coverage(
     frames and the number of unique visits — enough to decide whether
     a region has deep coverage in a given band. Set ``detailed=True``
     to also receive every overlapping frame as a list of dicts.
+
+    ``source='local'`` uses the Parquet mirror at
+    ``mirror_path('frame')`` and the same frame-center proximity rule
+    as the server query (CCD corners are not present in `la2020.frame`,
+    so we cannot do exact bbox overlap here — just an offline copy of
+    the same proximity test).
     """
+
+    if source == "local":
+        return _frame_coverage_local(
+            ra, dec, size_deg=size_deg, detailed=detailed, mirror_df=mirror_df
+        )
+    if source != "server":
+        raise ValueError(f"source must be 'server' or 'local', got {source!r}")
 
     cli = client or _sql.HscLaClient(release=release)
     margin = FRAME_HALF_DEG + max(0.0, float(size_deg)) / 2.0
@@ -226,6 +317,43 @@ def frame_coverage(
         band_summary=band_summary,
         frames=frames,
     )
+
+
+def _frame_coverage_local(
+    ra: float,
+    dec: float,
+    *,
+    size_deg: float,
+    detailed: bool,
+    mirror_df: "pd.DataFrame | None",
+) -> FrameCoverage:
+    df = mirror_df if mirror_df is not None else _mirror.load_mirror("frame")
+    margin = FRAME_HALF_DEG + max(0.0, float(size_deg)) / 2.0
+    mask = (
+        (df["ra2000"] >= float(ra) - margin)
+        & (df["ra2000"] <= float(ra) + margin)
+        & (df["dec2000"] >= float(dec) - margin)
+        & (df["dec2000"] <= float(dec) + margin)
+    )
+    matched = df.loc[mask]
+    grouped = matched.groupby("band")
+    band_summary: dict[str, BandFrameSummary] = {}
+    for band, sub in grouped:
+        band_summary[str(band)] = BandFrameSummary(
+            band=str(band),
+            n_frames=int(len(sub)),
+            n_visits=int(sub["visit"].nunique()),
+        )
+    filters = tuple(sorted(band_summary))
+    frames: tuple[dict[str, Any], ...] | None = None
+    if detailed:
+        detail_cols = [c for c in ("frame_id", "visit", "ccd", "ccdname", "band",
+                                    "ra2000", "dec2000") if c in matched.columns]
+        sorted_rows = matched[detail_cols].sort_values(
+            [c for c in ("band", "visit", "ccd") if c in detail_cols]
+        )
+        frames = tuple(sorted_rows.to_dict(orient="records"))
+    return FrameCoverage(filters=filters, band_summary=band_summary, frames=frames)
 
 
 # --------------------------------------------------------------------------- #
