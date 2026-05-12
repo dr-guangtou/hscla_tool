@@ -42,9 +42,13 @@ gotchas in [`docs/lessons.md`](docs/lessons.md).
   dataclass with `.wcs()` and `.mask_planes()` helpers.
 - `hscla_tool.mask` — `decode(mask_hdu)` turns the integer mask plane
   into a dict of named boolean arrays (`BAD`, `SAT`, `CR`, ...).
+- `hscla_tool.psf` — `fetch_psf(ra, dec, band=...)` downloads a coadd
+  PSF kernel as a single-HDU FITS (sum-normalized to 1.0), cached by
+  content hash. Returns a `Psf` dataclass with `.array` and `.wcs()`
+  helpers. `cutout.NoCoverageError` is raised when there is no data.
 
-Still to come (see [`docs/todo.md`](docs/todo.md)): PSF picker /
-crossmatch / direct file-tree download / CLI.
+Still to come (see [`docs/todo.md`](docs/todo.md)): crossmatch /
+direct file-tree download / CLI.
 
 ## Credentials
 
@@ -153,6 +157,27 @@ data at the requested (RA, Dec, band, kind). Cutout FITS files are
 cached under `${HSCLA_TOOL_CACHE}/cutouts/` by a SHA-256 hash of the
 request, so a re-run of the same script reads the local file instead
 of refetching.
+
+### PSF kernel
+
+```python
+from hscla_tool import psf
+
+p = psf.fetch_psf(
+    ra=49.265759499639465, dec=41.24859266109193,
+    band="HSC-I",                # 'i' also works; server normalizes
+    centered=True,               # peak lands at the requested RA/Dec
+)
+try:
+    kernel = p.array              # 2D numpy.float64, normalized to sum 1
+    assert abs(kernel.sum() - 1.0) < 1e-3
+finally:
+    p.close()
+```
+
+PSFs share the same `NoCoverageError` (re-exported from `cutout`)
+when the region has no HSCLA data, and the same content-hash cache
+layout under `${HSCLA_TOOL_CACHE}/psfs/`.
 
 ## Reference: HSCLA endpoints and data
 

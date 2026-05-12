@@ -158,6 +158,38 @@ cutout_api:
   bulk_chunksize: 990
   mask_plane_header_prefix: "MP_"
 
+# HTTP endpoints for the HSCLA PSF picker service. Confirmed live on
+# 2026-05-12. Same authentication style as the DAS cutout service
+# (HTTP Basic) but a different host path, a slightly different
+# coordinate-list field set, and a much smaller per-request payload
+# (one PRIMARY HDU per FITS, no mask/variance).
+psf_api:
+  base_url: https://hscla.mtk.nao.ac.jp/psf/la2020
+  endpoint: /cgi/getpsf
+  query: bulk=on                       # appended literally to the URL
+  auth: http_basic
+  multipart_field: list                # filename: coordlist.txt
+  coord_list_format:
+    delimiter: whitespace
+    header_prefix: "#?"
+    columns:
+      - rerun       # e.g. la2020
+      - type        # coadd | calexp
+      - filter      # accepts 'i' or 'HSC-I'; server normalizes to long form
+      - tract       # integer or 'auto'
+      - patch       # 'x,y' or 'auto'
+      - ra          # "<float>deg"
+      - dec         # "<float>deg"
+      - centered    # 'true' or 'false'
+  response:
+    content_type: application/x-tar
+    archive_layout: "<line>-psf-calexp-<rerun>-<filter>-<tract>-<x>,<y>-<ra>-<dec>.fits"
+    fits_layout:
+      - hdu_0: PRIMARY 2D float64 PSF kernel; sum is normalized to 1.
+                 Header has linear pixel WCS (CTYPE*='LINEAR'), no sky WCS.
+    empty_tar_means: no HSCLA coverage at that region (HTTP 200 + zero TAR members)
+  bulk_chunksize: 990
+
 # Local Parquet mirrors of the small HSCLA metadata catalogs.
 # Built once with `uv run python -m hscla_tool.mirror build <table>`.
 local_mirror:

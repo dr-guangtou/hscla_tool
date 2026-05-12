@@ -15,6 +15,12 @@ Format:
 
 ---
 
+## 2026-05-12 — HSCLA PSFs use the alternate WCS key `A`
+- Context: writing `Psf.wcs()` for the Phase 5 PSF picker.
+- Surprise: `WCS(header)` raised `KeyError("No WCS with key ' ' was found in the given header")` even though the FITS clearly had `CTYPE1A='LINEAR'`, `CRPIX1A=1`, `CRVAL1A=-20` etc. HSCLA writes the PSF kernel's pixel WCS under the alternate key `A`, not the primary key.
+- Resolution: `Psf.wcs()` tries `WCS(header)` first and falls back to `WCS(header, key='A')` on `KeyError`. Works for both shapes.
+- Rule: when reading any HSCLA FITS, do not assume the WCS lives under the primary key. Probe with `astropy.io.fits.Header.cards`, look for `CTYPE*<key>`, and pass the right key to `astropy.wcs.WCS`.
+
 ## 2026-05-12 — Two HSCLA services, two different auth schemes
 - Context: Phase 4 cutout client.
 - Surprise: the DAS cutout service uses **HTTP Basic auth** (`Authorization: Basic base64(user:password)`), not the `LAAUTH_SESSION` session-cookie flow the catalog SQL service requires. Sending the cookie does nothing here; sending the basic-auth header to the SQL service does nothing there. The two services are siblings under the same archive but they speak different languages.

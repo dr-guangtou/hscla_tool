@@ -76,6 +76,7 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
         "releases",
         "sql_api",
         "cutout_api",
+        "psf_api",
         "command_line_tools",
         "catalogs",
         "photometry",
@@ -143,6 +144,15 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
         "cutout_api",
     )
     _check_url(cutout_api["base_url"], source, "cutout_api.base_url")
+
+    psf_api = data["psf_api"]
+    _require_keys(
+        psf_api,
+        ("base_url", "endpoint", "auth", "multipart_field", "coord_list_format"),
+        source,
+        "psf_api",
+    )
+    _check_url(psf_api["base_url"], source, "psf_api.base_url")
 
     fixtures = data["test_regions"]
     if not isinstance(fixtures, dict) or not fixtures:
@@ -265,6 +275,12 @@ def get_cutout_api(*, path: str | Path | None = None) -> dict[str, Any]:
     """Return the HTTP endpoint metadata for the HSCLA DAS cutout service."""
 
     return dict(load(path)["cutout_api"])
+
+
+def get_psf_api(*, path: str | Path | None = None) -> dict[str, Any]:
+    """Return the HTTP endpoint metadata for the HSCLA PSF picker service."""
+
+    return dict(load(path)["psf_api"])
 
 
 def get_release_version_token(release: str, *, path: str | Path | None = None) -> str:

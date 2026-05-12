@@ -41,6 +41,19 @@ GOOD_DOC: dict = {
                         "sw", "sh", "image", "mask", "variance"],
         },
     },
+    "psf_api": {
+        "base_url": "https://hscla.mtk.nao.ac.jp/psf/la2020",
+        "endpoint": "/cgi/getpsf",
+        "query": "bulk=on",
+        "auth": "http_basic",
+        "multipart_field": "list",
+        "coord_list_format": {
+            "delimiter": "whitespace",
+            "header_prefix": "#?",
+            "columns": ["rerun", "type", "filter", "tract", "patch",
+                        "ra", "dec", "centered"],
+        },
+    },
     "sql_api": {
         "login_url": "https://hscla.mtk.nao.ac.jp/account/api/session",
         "base_url": "https://hscla.mtk.nao.ac.jp/datasearch/api/catalog_jobs/",

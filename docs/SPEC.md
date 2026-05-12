@@ -77,6 +77,10 @@ hscla_tool/
                      #     streaming TAR response, empty-TAR = no coverage).
   mask.py            # U4: maskbit-plane decoding from MP_* header cards,
                      #     with a vendored fallback bit map.
+  psf.py             # U5: PSF kernels via the PSF picker (/psf/.../cgi/getpsf,
+                     #     basic auth, multipart coord list with rerun/type/
+                     #     filter/tract/patch/ra/dec/centered, TAR of single-
+                     #     HDU FITS files normalized to sum 1.0).
   psf.py             # U5: PSF model retrieval via PSF picker
   sql.py             # U7: HSC SQL client (adapted from hsc_sandbox/step1/sql_query.py)
   crossmatch.py      # U6: server-side crossmatch wrapper

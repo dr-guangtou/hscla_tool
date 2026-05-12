@@ -121,12 +121,21 @@ Local copies of the small HSCLA metadata catalogs, so coverage / overlap / looku
 
 ---
 
-## Phase 5 — PSF picker (U5)
+## Phase 5 — PSF picker (U5) *(done)*
 
-- [ ] `psf.fetch_psf(ra, dec, *, band, kind="coadd")` returns a PSF as a 2D `numpy` array plus a cached FITS path.
-- [ ] Handle the "no coverage" case symmetrically with `cutout`.
+- [x] `hscla_tool/psf.py` with `HscLaPsfClient` (HTTP Basic auth, multipart-form upload to `/psf/la2020/cgi/getpsf?bulk=on`) and `fetch_psf(ra, dec, *, band, kind='coadd', tract='auto', patch='auto', centered=True)`.
+- [x] `Psf` frozen dataclass with `fits_path`, `hdul`, `psf_hdu`, `.array` property, `.wcs()` helper (handles HSCLA's alternate `A` WCS key), and `.close()`.
+- [x] `NoCoverageError` re-used from `cutout` so callers can catch one exception for either fetch path.
+- [x] Content-hash FITS cache under `${HSCLA_TOOL_CACHE}/psfs/`.
+- [x] `psf_api` block added to `data/hscla_db.yaml` and validated by `db.py`.
+- [x] 9 offline tests + 2 live tests gated by `HSCLA_LIVE_TESTS=1`. Full suite: **85 passed + 8 gated-live (all pass when the flag is on)**.
+- [x] Live Perseus PSF at HSC-I returns a 41×41 float64 kernel normalized to sum 1.0 with the peak within 2 pixels of the center; uncovered fixture raises `NoCoverageError`.
 
-**Acceptance.** Perseus fixture yields a finite, normalized PSF in each available band; uncovered fixture raises `NoCoverageError`.
+### Review (2026-05-12)
+- The PSF picker is the same auth + wire-format pattern as the cutout service (HTTP Basic, multipart-form coord list, TAR-of-FITS, empty-TAR = no data), but with a different field set (`rerun type filter tract patch ra dec centered`) and a much smaller payload (one single-HDU FITS per request, no mask/variance).
+- The server accepts both short (`i`) and long (`HSC-I`) filter names and normalizes to the long form in the response filename.
+- HSCLA writes the PSF's pixel WCS under the **alternate WCS key `A`** (`CTYPE1A`, `CRVAL1A`, etc.), not under the primary key. `Psf.wcs()` tries the primary first and falls back to `'A'`.
+- The PSF kernel header carries no sky WCS by design — these are kernel images in pixel space, not on-sky cutouts.
 
 ---
 
