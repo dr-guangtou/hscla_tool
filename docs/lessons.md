@@ -15,6 +15,13 @@ Format:
 
 ---
 
+## 2026-05-12 — HSCLA `frame.object` has mixed int + string cells
+- Context: building the local Parquet mirror of `la2020.frame` (4.16 M rows × 97 cols).
+- Surprise: the SQL job and download both succeeded; `df.to_parquet(...)` then exploded with `ArrowTypeError("Expected bytes, got a 'int' object")`. The column at fault: literally named `object` — the observing-log target name — whose CSV values mix purely numeric strings (parsed as `int`) and proper names. `pd.read_csv` inferred it as plain object-dtype with truly mixed Python types.
+- Resolution: added `_coerce_object_columns_to_string(df)` in `mirror.py` that casts every plain object-dtype column to pandas' nullable string dtype before writing. Real null values are preserved (no `"None"` cells). Regression test in `tests/test_mirror.py`.
+- Aside: `df.select_dtypes(include="object")` emits a pandas-3 deprecation warning because it also catches `str`/`string` extension dtypes; switched to a direct `df[col].dtype == object` check.
+- Rule: when mirroring a remote table, always normalize plain-`object` columns to a uniform string dtype before writing to Parquet. CSV type inference plus columns with mixed numeric/text cells is the canonical pyarrow-write footgun.
+
 ## 2026-05-12 — `coneSearch` / `boxSearch` don't apply to `mosaic.areacube`
 - Context: writing Phase 3 coverage. I assumed `coneSearch(areacube, ra, dec, r)` or `boxSearch(areacube, ...)` would let us ask "does this patch overlap my region?".
 - Surprise: both functions return zero matches on `mosaic` even when the region clearly has coverage (verified by querying with corner-coord ranges, by Perseus showing 4 bands of data in the file tree). On the live archive, the server-side spatial helpers seem to require a real `coord` column, which exists on `forced` / `meas` but not on `mosaic` / `frame`.

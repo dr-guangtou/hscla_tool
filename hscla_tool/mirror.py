@@ -134,6 +134,8 @@ def build_mirror(
             )
         df = _read_hscla_csv_gz(gz_path)
 
+    df = _coerce_object_columns_to_string(df)
+
     # Atomic write: parquet -> tmp -> rename.
     tmp_dest = dest.with_suffix(".parquet.tmp")
     df.to_parquet(tmp_dest, index=False, compression="zstd")
@@ -171,6 +173,30 @@ def _check_supported(table: str) -> None:
         raise MirrorError(
             f"table {table!r} is not a supported mirror; pick one of {SUPPORTED_TABLES}."
         )
+
+
+def _coerce_object_columns_to_string(df: pd.DataFrame) -> pd.DataFrame:
+    """Make every `object`-dtype column a clean nullable string column.
+
+    The HSCLA `frame` table includes a literal column named ``object``
+    (the target name in the observing log) whose values are sometimes
+    numeric and sometimes alphabetic. pandas' CSV reader infers it as
+    plain `object` dtype and pyarrow then refuses to write it because
+    the cells mix int and bytes. Casting to pandas' nullable string
+    dtype gives us a single representation that pyarrow accepts and
+    that preserves real nulls (instead of turning them into "None").
+    """
+
+    # Check the dtype directly: `select_dtypes(include='object')` would also
+    # pick up pandas' StringDtype on pandas >=3 and emit a deprecation
+    # warning, so we steer clear.
+    object_cols = [c for c in df.columns if df[c].dtype == object]
+    if not object_cols:
+        return df
+    df = df.copy()
+    for col in object_cols:
+        df[col] = df[col].astype("string")
+    return df
 
 
 def _read_hscla_csv_gz(gz_path: Path) -> pd.DataFrame:

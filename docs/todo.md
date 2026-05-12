@@ -96,7 +96,8 @@ Local copies of the small HSCLA metadata catalogs, so coverage / overlap / looku
 - [x] `coverage.region_coverage(..., source='local')` reads the mosaic Parquet, runs a true per-patch corner-AABB overlap with an RA-wrap guard (patches whose corner span exceeds 180° are dropped — they would otherwise match the whole sky).
 - [x] `coverage.frame_coverage(..., source='local', detailed=False)` reads the frame Parquet and applies the same frame-center proximity rule as the server query (frame has no usable CCD corners).
 - [x] **`mosaic` mirror built live**: 464,840 rows × 41 cols, 47 s end-to-end, 72.7 MB gzipped CSV, **51.5 MB Parquet on disk** at `/Volumes/galaxy/hsc/la2020/mosaic.parquet`.
-- [x] **`frame` mirror built live**: 4,163,375 rows × 97 cols, expected ~5-15 min, target `/Volumes/galaxy/hsc/la2020/frame.parquet`.
+- [x] **`frame` mirror built live**: 4,163,375 rows × 97 cols, ~13 min end-to-end (9.2 min SQL job + 2.7 min download of 1.4 GB gzipped CSV + 1.2 min Parquet write), **1.36 GB Parquet on disk** at `/Volumes/galaxy/hsc/la2020/frame.parquet`. First attempt failed at the Parquet write with a `pyarrow.ArrowTypeError` because `frame.object` has mixed int / string cells; fixed by `_coerce_object_columns_to_string` in `mirror.py`.
+- [x] **Local `frame_coverage` query at Perseus**: 1.0 s Parquet load + 1.0 s scan → 1,049 frames across 145 visits (`HSC-G` 738/102, `HSC-I` 71/10, `HSC-R` 145/20, `HSC-Z` 95/13). Visit counts match the server query exactly.
 - [x] Live local-mirror query: Perseus returns 8 patches across `HSC-G/I/R/Z`, mean seeing 0.53–0.69″; the uncovered fixture returns empty (no antipodal-wrap false positives).
 
 ### Review (2026-05-12)

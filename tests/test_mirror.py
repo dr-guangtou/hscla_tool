@@ -174,3 +174,32 @@ def test_coverage_source_validation() -> None:
         coverage.region_coverage(0.0, 0.0, source="moon")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="source"):
         coverage.frame_coverage(0.0, 0.0, source="moon")  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------- #
+# Mixed-type column coercion (regression for the live `frame` build)
+# --------------------------------------------------------------------------- #
+
+
+def test_coerce_object_columns_to_string_handles_mixed_types(tmp_path: Path) -> None:
+    # Pandas reads HSCLA `frame.object` as plain object-dtype with both
+    # ints and strings; pyarrow refuses to write that. The coercion
+    # helper should turn the column into pandas' nullable StringDtype.
+    df = pd.DataFrame({
+        "frame_id": ["a", "b", "c"],
+        "object": ["target_one", 42, None],  # int and string mixed; with a real null
+        "exptime": [120.0, 240.0, 60.0],
+    })
+    out = mirror._coerce_object_columns_to_string(df)
+    # pandas 2.x calls the nullable dtype "string", pandas 3.x calls it "str";
+    # the point is that it is no longer plain object.
+    assert str(out["frame_id"].dtype) in {"string", "str"}
+    assert str(out["object"].dtype) in {"string", "str"}
+    # Numeric columns are left alone.
+    assert out["exptime"].dtype.kind == "f"
+    # And the result actually writes to Parquet.
+    path = tmp_path / "round_trip.parquet"
+    out.to_parquet(path, index=False, compression="zstd")
+    back = pd.read_parquet(path)
+    assert list(back["object"][:2]) == ["target_one", "42"]
+    assert back["object"].iloc[2] is None or pd.isna(back["object"].iloc[2])
