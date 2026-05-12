@@ -64,7 +64,9 @@ hscla_tool/
   __init__.py        # public API + __version__
   config.py          # env-var credentials, cache paths, base URLs
   db.py              # load data/hscla_db.yaml + small helper lookups
-  coverage.py        # U1, U2: region -> mosaic/frame rows -> filter list
+  coverage.py        # U1, U2: region -> RegionCoverage / FrameCoverage
+                     #   (patch-center proximity, not coneSearch -- mosaic
+                     #    has no coord column the server's helpers accept)
   cutout.py          # U3, U4: FITS cutout (image+variance+mask) via DAS cutout
   mask.py            # U4: maskbit-plane decoding (named planes)
   psf.py             # U5: PSF model retrieval via PSF picker

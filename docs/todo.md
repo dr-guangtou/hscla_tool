@@ -71,14 +71,19 @@ Goal: get arbitrary SQL queries working against HSCLA2020.
 
 ---
 
-## Phase 3 — Coverage and provenance (U1, U2)
+## Phase 3 — Coverage and provenance (U1, U2) *(done)*
 
-- [ ] `coverage.region_coverage(ra, dec, *, size_deg)` → queries `la2020.mosaic` via `boxSearch`, returns filters present + overlapping `mosaic_id`s.
-- [ ] `coverage.frame_coverage(ra, dec, *, size_deg)` → same against `la2020.frame` (single-CCD provenance).
-- [ ] Both functions return a structured `Coverage` dataclass; empty result for uncovered regions.
-- [ ] Tests against both fixtures.
+- [x] `coverage.region_coverage(ra, dec, *, size_deg=0.0)` queries `la2020.mosaic` and returns a `RegionCoverage` with sorted filters, per-patch `PatchInfo` rows (band / tract / patch / patch_s / skymap_id / ra2000 / dec2000 / seeing), and per-band mean seeing.
+- [x] `coverage.frame_coverage(ra, dec, *, size_deg=0.0, detailed=False)` queries `la2020.frame` and returns a `FrameCoverage` with band-level summary `(n_frames, n_visits)`; `detailed=True` also returns one dict per frame.
+- [x] Both functions return well-formed empty results for uncovered regions; `Coverage.covered` is a simple bool flag.
+- [x] Eight offline tests (stubbed `preview_sql`) + three live tests gated by `HSCLA_LIVE_TESTS=1`. Full suite: 45 passed + 4 gated-live (also passed when run with the flag).
 
-**Acceptance.** Perseus fixture returns five filters; uncovered fixture returns `Coverage(filters=[], …)` without raising.
+### Review (2026-05-12)
+- The originally planned `boxSearch` approach **doesn't work for `mosaic`**: the server's `coneSearch` / `boxSearch` operate on `coord`-typed columns (present in `forced` / `meas`), and on `mosaic.areacube` they return 0 every time. The naive `LEAST/GREATEST` corner envelope is wrong near the RA=0 wrap: it returned three "matches" on the antipodal side of the sky for the uncovered fixture.
+- Switched to **patch-center / frame-center proximity** (`ra2000` / `dec2000` BETWEEN ± margin). Margin = `0.12 deg` for `mosaic` and `0.20 deg` for `frame`, plus half the query box. This is a tiny over-approximation (a patch whose center is one arcsecond past the margin and tilted toward the box could be missed) but it produces correct, deterministic, RA-wrap-free results everywhere we'll actually use this tool.
+- Live results on Perseus fixture: 4 bands (HSC-G / HSC-I / HSC-R / HSC-Z), 2 patches each, sub-arcsecond seeing throughout. 145 visits across all four bands (102 in HSC-G alone) — confirms "aggregate by default" was the right call for `frame_coverage`.
+- Live results on the uncovered fixture: empty `Coverage` for both `mosaic` and `frame` queries, no exceptions raised.
+- **Limitation logged in module docstring:** regions wrapping RA=0/360 are not supported. The two shipped fixtures are nowhere near the wrap.
 
 ---
 
