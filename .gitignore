@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local folder for HSCLA downloads (cutouts, PSFs, SQL results, etc.)
+# during development and tests. Overridable with HSCLA_TOOL_CACHE.
+outputs/
+

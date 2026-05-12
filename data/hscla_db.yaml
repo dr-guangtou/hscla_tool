@@ -1,0 +1,250 @@
+# Machine-readable knowledge base for the HSC Legacy Archive (HSCLA).
+#
+# Source of truth: this file is the structured projection of README.md.
+# If you change a URL/table here, update README.md to match (or vice versa).
+#
+# Conventions:
+#   - All URLs are absolute.
+#   - Credentials are NEVER stored here. They live in shell env vars
+#     HSCLA_USR and HSCLA_PWD (see ~/.zprofile).
+#   - `release` refers to a public-facing HSCLA release name (e.g., "la2020").
+#   - `schema`  refers to a PostgreSQL schema inside the SQL database
+#     (e.g., "la2020"); a fully-qualified table looks like "la2020.forced".
+
+archive:
+  name: HSC Legacy Archive
+  short_name: HSCLA
+  home: https://hscla.mtk.nao.ac.jp/doc/home/
+  documentation: https://hscla.mtk.nao.ac.jp/doc/
+  credentials:
+    username_env: HSCLA_USR
+    password_env: HSCLA_PWD
+    profile_file: ~/.zshenv
+    notes: >
+      Credentials authenticate against the same STARS account used elsewhere
+      at NAOJ. Do not commit them. Tools must read them from the env vars
+      above and fail loudly if either is unset. They live in ~/.zshenv so
+      that every zsh shell (login or not) inherits them.
+
+releases:
+  la2020:
+    name: HSCLA2020
+    status: current
+    description: >
+      HSCLA2020 includes data taken up through 2020 and is the latest
+      release. Reduced with hscPipe v8 (same as HSC PDR3).
+    info_page: https://hscla.mtk.nao.ac.jp/doc/available-data-hscla2020/
+    pipeline:
+      name: hscPipe
+      version: "8"
+      sibling_release: HSC-SSP PDR3
+    tools:
+      sql_search: https://hscla.mtk.nao.ac.jp/datasearch/
+      schema_browser: https://hscla.mtk.nao.ac.jp/schema/
+      das_cutout: https://hscla.mtk.nao.ac.jp/das_cutout/la2020/
+      das_cutout_manual: https://hscla.mtk.nao.ac.jp/das_cutout/la2020/manual.html
+      psf_picker: https://hscla.mtk.nao.ac.jp/psf/la2020/
+      psf_picker_manual: https://hscla.mtk.nao.ac.jp/psf/la2020/manual.html
+      das_search: https://hscla.mtk.nao.ac.jp/das_search/la2020/
+      das_search_manual: https://hscla.mtk.nao.ac.jp/das_search/la2020/usage.html
+      file_tree: https://hscla.mtk.nao.ac.jp/archive/files/la2020/
+    data_access_page: https://hscla.mtk.nao.ac.jp/doc/data-access-hscla2020/
+
+# Official NAOJ command-line scripts. We treat these as a reference; we may
+# rewrite them in our package when there is a real reason (modern Python,
+# typing, structured errors, async/HTTP-keepalive, etc.).
+command_line_tools:
+  repo: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools
+  tree_la2020: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/-/tree/master/la2020
+  scripts:
+    catalog_query:
+      tree: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/-/tree/master/la2020/catalogQuery
+      entrypoint: hscSspQuery.py
+      purpose: Submit SQL jobs against the HSCLA catalog database.
+    color_postage:
+      tree: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/-/tree/master/la2020/colorPostage
+      entrypoint: colorPostage.py
+      purpose: Render color postage stamps from coadd cutouts.
+    download_cutout:
+      tree: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/-/tree/master/la2020/downloadCutout
+      entrypoint: downloadCutout.py
+      purpose: Download FITS cutouts (image, variance, mask) from coadd or single-frame data.
+    download_psf:
+      tree: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/-/tree/master/la2020/downloadPsf
+      entrypoint: downloadPsf.py
+      purpose: Download a PSF model at a specified (RA, Dec) and filter.
+    cross_match:
+      tree: https://hsc-gitlab.mtk.nao.ac.jp/ssp-software/data-access-tools/tree/master/pdr2/hscSspCrossMatch
+      entrypoint: hscSspCrossMatch.py
+      purpose: Server-side cross-match of an uploaded list against HSCLA.
+      hscla_flag: "--rerun=la2020"
+      notes: >
+        Lives under the pdr2 subtree in upstream but works for HSCLA when
+        the --rerun=la2020 flag is set.
+
+# SQL catalog inventory for HSCLA2020. `kind` is one of {metadata, forced,
+# meas}. `joins_on` lists the primary object_id-style key used to join to
+# the corresponding summary table (`forced` or `meas`). `preferred_for`
+# tags the table that should be the default for a given science use.
+catalogs:
+  schema: la2020
+  schema_browser_prefix: https://hscla.mtk.nao.ac.jp/schema/#la2020.la2020.
+  tables:
+    # ---- Metadata tables ----
+    mosaic:
+      kind: metadata
+      description: Coadd (mosaic/stacked) image metadata, including footprint and zeropoints from jointcal.
+    frame:
+      kind: metadata
+      description: Reduced single-CCD image (visit/CCD) metadata.
+    photocalib:
+      kind: metadata
+      description: Per-CCD photometric calibration. Zeropoints here come from mosaicking (jointcal.py).
+
+    # ---- Forced photometry (positions fixed by reference band) ----
+    forced:
+      kind: forced
+      role: summary
+      description: >
+        Summary forced-photometry table on coadd images: object_id, footprint
+        membership, isPrimary, Milky Way extinction, merge_footprint_/merge_peak_
+        per filter, all pixel flags, and CModel photometry.
+    forced_aper:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Aperture fluxes.
+    forced_conv:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: PSF-convolved aperture fluxes.
+    forced_flux:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Gaussian, PSF, Kron, undeblended PSF, and undeblended Kron fluxes (undeblended = parent footprint).
+    forced_other:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Input counts, variance, local background, SDSS shape, double-Shapelet PSF, SDSS centroid.
+    forced_undeb_aper:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Undeblended aperture photometry (no PSF homogenization).
+    forced_undeb_conv:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      preferred_for: photo_z
+      description: Undeblended aperture photometry after PSF homogenization via convolution. Best photometry for photo-z.
+    forced_undeb_conv_flag:
+      kind: forced
+      role: detail
+      joins_on: object_id
+      description: Flags for `forced_undeb_conv`.
+
+    # ---- Unforced ("meas") photometry (per-band measurements) ----
+    meas:
+      kind: meas
+      role: summary
+      description: Summary unforced measurements on coadd images.
+    meas_aper:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Unforced aperture photometry.
+    meas_centroid:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Naive centroid; SDSS centroid.
+    meas_cmodel:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Unforced CModel photometry.
+    meas_conv:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Unforced PSF-convolved aperture photometry.
+    meas_flux:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Unforced Gaussian, PSF, and Kron flux.
+    meas_hsm:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: HSM PSF measurements (shape/shear-relevant).
+    meas_other:
+      kind: meas
+      role: detail
+      joins_on: object_id
+      description: Input count, variance, local background, footprint area, SDSS shape, blendedness, double-Shapelet PSF. SDSS shape and blendedness are the most useful here.
+
+# Photometric conventions for HSCLA2020.
+photometry:
+  flux_unit: nanojansky
+  position_unit: degrees
+  shape_convention: >
+    Shapes and ellipticities are re-projected into the tangent plane at the
+    object's own position; first axis parallels RA, second axis parallels
+    DEC. Tangent-plane coordinates are flipped relative to the coadd image.
+
+# Server-side functions usable in WHERE clauses. All return boolean.
+where_clause_functions:
+  - name: coneSearch
+    signature: "coneSearch(coord, RA_deg, DEC_deg, RADIUS_arcsec) -> bool"
+    description: True when `coord` falls inside a circle of radius RADIUS arcsec around (RA, DEC) in degrees.
+  - name: boxSearch
+    signature: "boxSearch(coord, RA1, RA2, DEC1, DEC2) -> bool"
+    description: >
+      True when `coord` is inside the box [RA1, RA2] x [DEC1, DEC2] in degrees.
+      RA wrap matters: boxSearch(coord, 350, 370, ...) means ra in [350,360] U [0,10],
+      while boxSearch(coord, 350, 10, ...) means ra in [10, 350].
+  - name: tractSearch_single
+    signature: "tractSearch(object_id, TRACT) -> bool"
+    description: True when tract == TRACT.
+  - name: tractSearch_range
+    signature: "tractSearch(object_id, TRACT1, TRACT2) -> bool"
+    description: True when tract is in [TRACT1, TRACT2].
+
+# Test fixtures: real coordinates we use to validate that any new module
+# behaves correctly both when HSCLA has coverage and when it does not.
+test_regions:
+  covered_lsbg:
+    description: >
+      Low-surface-brightness galaxy in the Perseus cluster with deep
+      multi-band HSCLA coverage. Use this to validate cutout, PSF,
+      and SQL queries that should return non-empty data.
+    ra_deg: 49.265759499639465
+    dec_deg: 41.24859266109193
+    box_size_deg: 0.03
+  uncovered_blank:
+    description: >
+      Coordinate with no HSCLA coverage. Use this to verify that tools
+      return well-formed "no coverage" responses instead of crashing
+      or silently returning stale data.
+    ra_deg: 198.1261597689148
+    dec_deg: 29.561429698176415
+
+# Cross-references to prior local work we should learn from, not duplicate.
+related_local_repos:
+  unagi:
+    role: prior_art
+    upstream: https://github.com/dr-guangtou/unagi
+    purpose: Earlier Python wrapper for HSC SSP internal and public releases.
+    notes: Many target features already implemented; organization is dated.
+  hsc_sandbox_step1:
+    role: pattern_source
+    path: /Users/shuang/Dropbox/work/project/otters/hsc_sandbox/step1
+    purpose: Production-grade SQL access patterns for HSC s23b_wide (internal release).
+    reusable_pieces:
+      - python/sql_query.py    # modern HSC SQL client
+      - python/fetch_schema.py # introspect information_schema.columns
+      - hsc_db.yaml            # template for the file you are reading now
