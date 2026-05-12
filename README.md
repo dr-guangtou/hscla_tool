@@ -36,9 +36,15 @@ gotchas in [`docs/lessons.md`](docs/lessons.md).
 - `hscla_tool.mirror` — `build_mirror(table)` materializes one
   whole HSCLA metadata catalog as a single Parquet file under
   `/Volumes/galaxy/hsc/la2020/` (override with `HSCLA_MIRROR_ROOT`).
+- `hscla_tool.cutout` — `fetch_cutout(ra, dec, size_arcsec, band, ...)`
+  downloads an HSCLA coadd cutout (multi-extension FITS with image,
+  mask, variance), caches by content hash, returns a `Cutout`
+  dataclass with `.wcs()` and `.mask_planes()` helpers.
+- `hscla_tool.mask` — `decode(mask_hdu)` turns the integer mask plane
+  into a dict of named boolean arrays (`BAD`, `SAT`, `CR`, ...).
 
-Still to come (see [`docs/todo.md`](docs/todo.md)): DAS cutout / mask
-decoding / PSF picker / crossmatch / direct file-tree download / CLI.
+Still to come (see [`docs/todo.md`](docs/todo.md)): PSF picker /
+crossmatch / direct file-tree download / CLI.
 
 ## Credentials
 
@@ -119,6 +125,34 @@ default; override the directory by setting `HSCLA_MIRROR_ROOT`. The
 local path uses the *real* patch corners with an RA=0 wrap guard,
 which is strictly tighter than the server's patch-center proximity
 filter.
+
+### Cutout + mask
+
+```python
+from hscla_tool import cutout, mask
+
+c = cutout.fetch_cutout(
+    ra=49.265759499639465, dec=41.24859266109193,
+    size_arcsec=108.0,            # 0.03 deg box
+    band="HSC-I",
+    with_variance=True, with_mask=True,
+)
+try:
+    image = c.image.data           # numpy float32
+    var = c.variance.data
+    planes = c.mask_planes()       # {'BAD': ndarray, 'SAT': ndarray, ...}
+    sat_pixels = planes["SAT"]
+    bad_pixels = planes["BAD"]
+    wcs = c.wcs()
+finally:
+    c.close()
+```
+
+`fetch_cutout` returns a typed `NoCoverageError` when HSCLA has no
+data at the requested (RA, Dec, band, kind). Cutout FITS files are
+cached under `${HSCLA_TOOL_CACHE}/cutouts/` by a SHA-256 hash of the
+request, so a re-run of the same script reads the local file instead
+of refetching.
 
 ## Reference: HSCLA endpoints and data
 

@@ -72,8 +72,11 @@ hscla_tool/
   mirror.py          # Build + load local Parquet copies of HSCLA metadata
                      # catalogs (mosaic, frame, mosaicframe, wcs). Used by
                      # the local branch of coverage.
-  cutout.py          # U3, U4: FITS cutout (image+variance+mask) via DAS cutout
-  mask.py            # U4: maskbit-plane decoding (named planes)
+  cutout.py          # U3: FITS cutout (image+variance+mask) via the DAS
+                     #     cutout CGI (basic auth, multipart-form coord list,
+                     #     streaming TAR response, empty-TAR = no coverage).
+  mask.py            # U4: maskbit-plane decoding from MP_* header cards,
+                     #     with a vendored fallback bit map.
   psf.py             # U5: PSF model retrieval via PSF picker
   sql.py             # U7: HSC SQL client (adapted from hsc_sandbox/step1/sql_query.py)
   crossmatch.py      # U6: server-side crossmatch wrapper

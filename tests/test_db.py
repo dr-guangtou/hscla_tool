@@ -29,6 +29,18 @@ GOOD_DOC: dict = {
             },
         },
     },
+    "cutout_api": {
+        "base_url": "https://hscla.mtk.nao.ac.jp/das_cutout/la2020",
+        "endpoint": "/cgi-bin/cutout",
+        "auth": "http_basic",
+        "multipart_field": "list",
+        "coord_list_format": {
+            "delimiter": "whitespace",
+            "header_prefix": "#?",
+            "columns": ["rerun", "type", "filter", "tract", "ra", "dec",
+                        "sw", "sh", "image", "mask", "variance"],
+        },
+    },
     "sql_api": {
         "login_url": "https://hscla.mtk.nao.ac.jp/account/api/session",
         "base_url": "https://hscla.mtk.nao.ac.jp/datasearch/api/catalog_jobs/",

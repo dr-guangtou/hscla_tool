@@ -104,14 +104,20 @@ Local copies of the small HSCLA metadata catalogs, so coverage / overlap / looku
 - The local-mirror path is *more accurate* than the server query, not just faster: it uses the actual patch corners (with a wrap guard) rather than the patch-center proximity approximation. For Perseus, both paths return 4 bands but the local path keeps 8 patches vs the server's 4 (server margin happened to fall short of the second patch row).
 - `mirror.py` is deliberately scoped to the small metadata tables. The big photometry tables (`forced` / `meas` and detail variants) are tens of millions of rows and need a different strategy (per-tract files, partition by band) — out of scope here.
 
-## Phase 4 — DAS cutout + mask (U3, U4)
+## Phase 4 — DAS cutout + mask (U3, U4) *(done)*
 
-- [ ] `cutout.fetch_cutout(ra, dec, *, size_arcsec, band, kind="coadd", with_variance=True, with_mask=True)`.
-- [ ] Cache downloaded FITS under `${HSCLA_TOOL_CACHE}/cutouts/`.
-- [ ] `mask.decode(mask_hdu)` → `dict[str, ndarray]` keyed by named planes (BAD, SAT, INTRP, CR, EDGE, DETECTED, …). Source the bit→name map from the FITS header, fallback to a vendored mapping.
-- [ ] Raise `NoCoverageError` for the uncovered fixture.
+- [x] `hscla_tool/cutout.py` with `HscLaCutoutClient` (HTTP Basic auth) and `fetch_cutout(ra, dec, *, size_arcsec, band, kind='coadd', tract='any', with_variance=True, with_mask=True)`. Builds the multipart-form coordinate list, POSTs to `/cgi-bin/cutout`, stream-extracts the single FITS from the returned TAR, caches as a multi-extension FITS under `${HSCLA_TOOL_CACHE}/cutouts/<content-hash>.fits`, and returns a `Cutout` dataclass with `fits_path`, `hdul`, `image`, `mask_hdu`, `variance`, plus `.wcs()` and `.mask_planes()` helpers.
+- [x] Empty TAR (the server's no-coverage signal) → typed `NoCoverageError`.
+- [x] `hscla_tool/mask.py` with `parse_mask_planes(header)` (reads `MP_*` cards) and `decode(mask_hdu, planes=...)`. Vendored fallback bit map for older / hand-edited HDUs.
+- [x] 17 offline tests (6 mask, 11 cutout, including a synthetic multi-extension FITS round-trip through a fake `requests.Session`) plus 2 live tests gated by `HSCLA_LIVE_TESTS=1`. Full suite: **76 passed + 6 gated-live, all pass when the flag is on**.
+- [x] Live Perseus fetch (RA=49.27, Dec=41.24, 108″ box, HSC-I): cutout FITS opens, image / mask / variance HDUs all present, WCS is celestial, 17 mask planes decoded correctly (`BAD`, `SAT`, `INTRP`, `CR`, `EDGE`, `DETECTED`, ... `INEXACT_PSF`).
+- [x] Live uncovered fetch: `NoCoverageError` raised as expected, no exceptions in the TAR-parsing path.
 
-**Acceptance.** From the Perseus fixture, we can produce an RGB three-color preview using `i/r/g` cutouts; mask decoding correctly identifies SAT/BAD pixels.
+### Review (2026-05-12)
+- **DAS cutout uses HTTP Basic auth**, not the `LAAUTH_SESSION` cookie of the SQL API. Two different auth schemes for two services in the same archive.
+- **Bulk-first wire format, single-first API.** The upstream multipart form carries up to 990 cutouts; our v0 API exposes one-region calls and constructs a 1-row coord list internally. A `fetch_cutouts(list[...])` batch entry point can land later with no change to the existing call sites.
+- **Empty TAR = no coverage.** The server is too polite about uncovered regions: HTTP 200 + 10 KiB of zero-padding TAR. We detect "zero TAR members" and raise `NoCoverageError`, which the live test confirms is the actual behavior.
+- **Multi-extension FITS, not three separate files.** Image is the first non-integer HDU, mask is the integer HDU, variance is the second non-integer HDU. `_split_hdul` keys off `dtype.kind` so we never need to rely on HDU names (which HSCLA does not set).
 
 ---
 

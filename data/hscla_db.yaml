@@ -120,6 +120,44 @@ command_line_tools:
         Lives under the pdr2 subtree in upstream but works for HSCLA when
         the --rerun=la2020 flag is set.
 
+# HTTP endpoints for the HSCLA DAS image-cutout service. Confirmed live
+# on 2026-05-12. This is a separate web service from the SQL catalog,
+# with different authentication (HTTP Basic), a different host path,
+# and a multipart-form upload of a coordinate-list file as the wire
+# format. Image, mask, and variance arrive in a single multi-extension
+# FITS file per request, packaged inside a streamed TAR archive.
+cutout_api:
+  base_url: https://hscla.mtk.nao.ac.jp/das_cutout/la2020
+  endpoint: /cgi-bin/cutout            # POST, multipart/form-data
+  auth: http_basic                     # NOT the LAAUTH_SESSION cookie
+  multipart_field: list                # filename: coordlist.txt
+  coord_list_format:
+    delimiter: whitespace
+    header_prefix: "#?"
+    columns:
+      - rerun         # e.g. la2020
+      - type          # coadd | warp | frame
+      - filter        # HSC-G, HSC-R, ... or NB0515, ...
+      - tract         # integer or 'any'
+      - ra            # "<float>deg"
+      - dec           # "<float>deg"
+      - sw            # half-width in deg ("<float>deg"); total width = 2*sw
+      - sh            # half-height in deg ("<float>deg")
+      - image         # 'true' or 'false'
+      - mask          # 'true' or 'false'
+      - variance      # 'true' or 'false'
+  response:
+    content_type: application/x-tar
+    archive_layout: "arch-<tag>/<index>-cutout-<filter>-<tract>-<rerun>.fits"
+    fits_layout:
+      - hdu_0: PRIMARY (no data; headers only)
+      - hdu_1: image (float32) when image=true
+      - hdu_2: mask (int32, bitmask) when mask=true
+      - hdu_3: variance (float32) when variance=true
+    empty_tar_means: no HSCLA coverage at that region (HTTP 200 + zero TAR members)
+  bulk_chunksize: 990
+  mask_plane_header_prefix: "MP_"
+
 # Local Parquet mirrors of the small HSCLA metadata catalogs.
 # Built once with `uv run python -m hscla_tool.mirror build <table>`.
 local_mirror:

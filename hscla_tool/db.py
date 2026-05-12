@@ -75,6 +75,7 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
         "archive",
         "releases",
         "sql_api",
+        "cutout_api",
         "command_line_tools",
         "catalogs",
         "photometry",
@@ -133,6 +134,15 @@ def _validate(data: dict[str, Any], *, source: Path) -> None:
             raise KnowledgeBaseError(f"{source}: sql_api.endpoints missing required key {key!r}")
     status_values = sql_api["status_values"]
     _require_keys(status_values, ("in_progress", "terminal"), source, "sql_api.status_values")
+
+    cutout_api = data["cutout_api"]
+    _require_keys(
+        cutout_api,
+        ("base_url", "endpoint", "auth", "multipart_field", "coord_list_format"),
+        source,
+        "cutout_api",
+    )
+    _check_url(cutout_api["base_url"], source, "cutout_api.base_url")
 
     fixtures = data["test_regions"]
     if not isinstance(fixtures, dict) or not fixtures:
@@ -249,6 +259,12 @@ def get_sql_api(*, path: str | Path | None = None) -> dict[str, Any]:
     """Return the HTTP endpoint metadata for the HSCLA catalog SQL service."""
 
     return dict(load(path)["sql_api"])
+
+
+def get_cutout_api(*, path: str | Path | None = None) -> dict[str, Any]:
+    """Return the HTTP endpoint metadata for the HSCLA DAS cutout service."""
+
+    return dict(load(path)["cutout_api"])
 
 
 def get_release_version_token(release: str, *, path: str | Path | None = None) -> str:

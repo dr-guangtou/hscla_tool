@@ -15,6 +15,24 @@ Format:
 
 ---
 
+## 2026-05-12 — Two HSCLA services, two different auth schemes
+- Context: Phase 4 cutout client.
+- Surprise: the DAS cutout service uses **HTTP Basic auth** (`Authorization: Basic base64(user:password)`), not the `LAAUTH_SESSION` session-cookie flow the catalog SQL service requires. Sending the cookie does nothing here; sending the basic-auth header to the SQL service does nothing there. The two services are siblings under the same archive but they speak different languages.
+- Resolution: separate clients — `hscla_tool.sql.HscLaClient` (cookie auth) and `hscla_tool.cutout.HscLaCutoutClient` (basic auth). Both consume the same `config.Credentials` so the user only sets `HSCLA_USR` / `HSCLA_PWD` once.
+- Rule: when adding any new HSCLA endpoint, probe its auth requirements before reusing an existing client's pattern.
+
+## 2026-05-12 — DAS cutout signals "no coverage" with an empty TAR (HTTP 200)
+- Context: probing the uncovered fixture at the cutout endpoint.
+- Surprise: server returned HTTP 200, `application/x-tar`, and ~10 KiB of zero padding — a valid but empty TAR archive. No FITS members. Nothing in the response body says "no coverage"; you have to iterate the TAR and notice it's empty.
+- Resolution: `cutout._extract_one_fits` returns `None` when the TAR has zero `.fits` members; `fetch_cutout` then raises a typed `NoCoverageError`.
+- Rule: never assume an HTTP error code is your "nothing here" signal. Image services often answer "no" with a successful empty payload.
+
+## 2026-05-12 — HSCLA cutout = one multi-extension FITS, not three files
+- Context: I expected the cutout TAR to contain separate `image.fits`, `mask.fits`, `variance.fits` members (`unagi` does it that way).
+- Surprise: the live response packs a single multi-extension FITS per cutout request: HDU 0 is empty `PRIMARY`, HDU 1 is the float32 image, HDU 2 is the int32 mask, HDU 3 is the float32 variance. HSCLA does **not** set `EXTNAME` on the data HDUs, so you cannot identify them by header name.
+- Resolution: `cutout._split_hdul` keys off `dtype.kind` — first non-integer HDU is the image, first integer HDU is the mask, remaining non-integer HDU is the variance. Order-based but robust to absent flags.
+- Rule: when the upstream sends a multi-extension FITS without `EXTNAME`s, infer kind from dtype, not header position alone.
+
 ## 2026-05-12 — HSCLA `frame.object` has mixed int + string cells
 - Context: building the local Parquet mirror of `la2020.frame` (4.16 M rows × 97 cols).
 - Surprise: the SQL job and download both succeeded; `df.to_parquet(...)` then exploded with `ArrowTypeError("Expected bytes, got a 'int' object")`. The column at fault: literally named `object` — the observing-log target name — whose CSV values mix purely numeric strings (parsed as `int`) and proper names. `pd.read_csv` inferred it as plain object-dtype with truly mixed Python types.

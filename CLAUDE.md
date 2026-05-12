@@ -75,6 +75,34 @@ tool behaves correctly on machines without the mirror.
   criteria", "MVP", "contract", "abstraction layer", etc.). Say what
   you mean in everyday words.
 
+## Expect surprises from the HSCLA server
+
+The NAOJ web services behind HSCLA2020 are not held to a uniform
+design. Different services in the same archive use different auth
+schemes, different request formats, and different "no result"
+signals. We've already hit:
+
+- SQL catalog uses session-cookie auth (`LAAUTH_SESSION`); the DAS
+  cutout service in the *same* archive uses HTTP Basic auth.
+- `release_version` on the SQL wire is `hscla2020`; everywhere else
+  the short release name is `la2020`.
+- Server-side spatial helpers (`coneSearch`, `boxSearch`) don't apply
+  to `mosaic.areacube` and return zero matches silently.
+- `mosaic` corner-envelope wraps incorrectly across RA=0 / 360.
+- `preview` SQL endpoint has a ~5 s hard timeout; real catalog
+  queries must go through the full `submit + poll + download` path.
+- HSCLA CSV downloads always prefix the header line with `# `.
+- `frame.object` (yes, that's a column name) holds mixed int + string
+  cells that crash plain `to_parquet`.
+- DAS cutout signals "no data here" with **HTTP 200 + empty TAR**,
+  not a 404. Multi-extension FITS without `EXTNAME`s.
+
+**Rule when adding any new HSCLA endpoint**: probe the live service
+end-to-end first (smallest legal request) and confirm the wire format,
+auth, success-vs-empty signals, and field/HDU naming. Only then write
+the module. Record each surprise in `docs/lessons.md`. Do not
+extrapolate from one HSCLA service's behavior to another.
+
 ## Hard rules for this repo
 
 - **Never work on `main`.** Cut a feature branch. Do not merge without
