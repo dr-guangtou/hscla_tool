@@ -221,3 +221,6 @@ __marimo__/
 # during development and tests. Overridable with HSCLA_TOOL_CACHE.
 outputs/
 
+# Per-session development journals — kept locally, not shared.
+docs/journal/
+
