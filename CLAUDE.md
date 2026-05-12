@@ -36,6 +36,35 @@ Always read these before writing or proposing code:
   — final authority on HSCLA endpoint payloads (cutout, PSF, SQL,
   crossmatch).
 
+## Local data on this machine
+
+The Parquet mirrors of the HSCLA metadata catalogs are already built
+at `/Volumes/galaxy/hsc/la2020/`:
+
+- `mosaic.parquet` — ~51 MB, 464,840 rows.
+- `frame.parquet`  — ~1.36 GB, 4,163,375 rows.
+
+**Default for basic coverage queries on this machine: use the local
+copy.** Concretely:
+
+- Prefer `coverage.region_coverage(..., source='local')` and
+  `coverage.frame_coverage(..., source='local')` for any interactive
+  or scripted coverage / overlap / patch-listing question. The local
+  path is strictly more accurate for `mosaic` (exact 4-corner AABB
+  overlap with an RA-wrap guard, instead of the server's patch-center
+  proximity rule), just as accurate for `frame`, and roughly a
+  one-second Parquet scan instead of a network round trip.
+- Use `source='server'` only when you specifically want a fresh read
+  from the archive — extremely rare for HSCLA2020, which is a closed
+  release.
+- If `/Volumes/galaxy` is not mounted, `source='local'` raises
+  `MirrorError` with a "run `uv run python -m hscla_tool.mirror build <table>`"
+  hint. Rebuild from there.
+
+This is a machine-specific default, not a global one — the public
+function signatures still default to `source='server'` so that the
+tool behaves correctly on machines without the mirror.
+
 ## How to talk with the user
 
 - **Ask questions when you're not sure.** Interview the user
