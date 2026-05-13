@@ -19,12 +19,16 @@ Always read these before writing or proposing code:
 2. `docs/USAGE.md` — task-oriented recipes ("how do I X?") for the
    library and CLI. Start here when a user request maps to an
    existing feature; only invent new code paths when no recipe fits.
-3. `data/hscla_db.yaml` — machine-readable catalog of HSCLA URLs,
+3. `docs/ARCHIVE_LAYOUT.md` — observed structure of the HSCLA2020
+   direct file archive at `/archive/files/la2020/`: per-patch FITS,
+   per-visit warps, single-exposure outputs, and the **1 TB session
+   rule**. Read before doing bulk-download work.
+4. `data/hscla_db.yaml` — machine-readable catalog of HSCLA URLs,
    tables, server-side WHERE functions, and the two regression
    coordinates. **This is the structured projection of `README.md`.
    Update both together.**
-4. `docs/todo.md` — the phased plan and current status.
-5. `docs/lessons.md` — accumulated mistakes and rationale.
+5. `docs/todo.md` — the phased plan and current status.
+6. `docs/lessons.md` — accumulated mistakes and rationale.
 
 ## Reference repos (external, do not modify)
 

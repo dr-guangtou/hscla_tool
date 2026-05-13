@@ -27,8 +27,12 @@ the real archive, to confirm the toolkit works on your machine.
 2. [`README.md`](../README.md) — narrative tour, endpoint reference,
    table catalog.
 3. [`docs/SPEC.md`](SPEC.md) — architecture and contracts.
-4. [`docs/lessons.md`](lessons.md) — every HSCLA surprise we've hit so far.
-5. [`data/hscla_db.yaml`](../data/hscla_db.yaml) — the machine-readable
+4. [`docs/ARCHIVE_LAYOUT.md`](ARCHIVE_LAYOUT.md) — observed layout of
+   the HSCLA2020 direct file archive (`/archive/files/la2020/`).
+   Read this before doing any bulk-download work; it documents the
+   per-patch / per-visit file kinds and the 1 TB session rule.
+5. [`docs/lessons.md`](lessons.md) — every HSCLA surprise we've hit so far.
+6. [`data/hscla_db.yaml`](../data/hscla_db.yaml) — the machine-readable
    knowledge base (URLs, tables, server-side functions, fixtures).
 
 Agents: also read [`CLAUDE.md`](../CLAUDE.md) before writing any code.
@@ -315,6 +319,14 @@ hscla cutouts inputs.csv                    # columns: ra, dec, size_arcsec, ban
   HTTP. Split bigger inputs into chunks.
 
 ### …download a whole patch FITS (coadd image or forced catalog)?
+
+> **!!! 1 TB session limit.** The direct file archive enforces an
+> upstream policy: any download session over **1 TB** must be
+> coordinated with the NAOJ team at `hscla-contact@ml.nao.ac.jp`
+> first. Plan budgets per filter × patch × file-kind before pulling.
+> [`docs/ARCHIVE_LAYOUT.md`](ARCHIVE_LAYOUT.md) carries the typical
+> file sizes.
+
 
 ```python
 from hscla_tool import archive

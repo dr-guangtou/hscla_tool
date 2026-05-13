@@ -17,7 +17,10 @@ Task-oriented recipes are in [`docs/USAGE.md`](docs/USAGE.md) — go
 there when you have a specific "how do I X?" question. The
 architecture lives in [`docs/SPEC.md`](docs/SPEC.md); the plan and
 phase-by-phase status in [`docs/todo.md`](docs/todo.md); accumulated
-gotchas in [`docs/lessons.md`](docs/lessons.md).
+gotchas in [`docs/lessons.md`](docs/lessons.md). The structure of the
+direct file archive (per-patch FITS, per-visit warps, single-exposure
+outputs, the 1 TB session rule) is mapped in
+[`docs/ARCHIVE_LAYOUT.md`](docs/ARCHIVE_LAYOUT.md).
 
 ## What works right now
 
