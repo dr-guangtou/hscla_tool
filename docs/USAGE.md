@@ -213,6 +213,14 @@ Perseus LSBG fixture on 2026-05-13; the median pixel value differs
 between the two by milli-ADU, consistent with the bg-correction
 difference. Test: `tests/test_cutout.py::test_live_fetch_cutout_coadd_bg_perseus_i_band`.
 
+> **Note for bulk users:** the `calexp` files in the direct file
+> archive (`/archive/files/la2020/deepCoadd-results/<F>/<T>/<P>/`) are
+> the **`coadd`** flavor (bit-identical at the pixel level), not
+> `coadd/bg`. If you need bg-corrected coadd pixels for LSB work, you
+> must go through the DAS cutout service with `kind='coadd/bg'`. See
+> [`docs/ARCHIVE_LAYOUT.md`](ARCHIVE_LAYOUT.md#calexp-is-the-coadd-flavor-not-coaddbg)
+> for the verification and the residual figure.
+
 The cache key includes `kind`, so a `coadd` cutout and a `coadd/bg`
 cutout at the same (ra, dec, band, size) live in different cached
 FITS files — no risk of one overwriting the other.

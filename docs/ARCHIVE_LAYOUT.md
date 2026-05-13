@@ -116,11 +116,49 @@ The `hscla_tool.archive` module (`download_patch_file`,
 construction, the URL-encoding, the HTTP Basic auth, and resumable
 downloads. Its `SUPPORTED_KINDS` tuple matches the 9 file kinds above.
 
-**Sample exists on disk after one cutout call**: `calexp` for any
-patch you've already pulled via the DAS cutout service is the
-*same product* the file tree serves, but the cutout service crops to
-your requested box, while this tree gives you the **whole patch** —
-typically ~12 arcmin square.
+### `calexp` is the `coadd` flavor, not `coadd/bg`
+
+The DAS image cutout service exposes two coadd "types" — `coadd`
+(per-visit local background subtraction) and `coadd/bg` (full
+focal-plane background correction). The file tree's `calexp` does
+**not** correspond to both; it is **bit-identical to `coadd`** at the
+pixel level. The full focal-plane bg-corrected coadd is **only**
+available through the DAS cutout service with `kind='coadd/bg'`, not
+through the file tree.
+
+Verified live on 2026-05-13 at the Perseus LSBG fixture
+(`RA = 49.2657595, Dec = 41.2485927`, 108″ box, HSC-I):
+
+| Comparison              | median pixel    | std        | |median| residual |
+| ----------------------- | --------------- | ---------- | ----------------- |
+| `calexp − coadd`        | `+0.000e+00`    | `2.5e-03`  | `0.0e+00`         |
+| `calexp − coadd/bg`     | `+4.48e-03`     | `1.17e-02` | `7.69e-03`        |
+| `coadd − coadd/bg`      | `+4.63e-03`     | `1.06e-02` | `7.65e-03`        |
+
+`calexp − coadd` is zero everywhere modulo a faint vertical seam at
+the patch boundary from our stitching procedure (the Perseus fixture
+straddles patches `1,6` and `2,6`; we cropped both calexps and
+combined them). The `calexp − coadd/bg` and `coadd − coadd/bg`
+residuals are within float-precision noise of each other — i.e., the
+file tree's `calexp` and the DAS service's `coadd` are the same
+product.
+
+![Perseus LSB HSCLA2020 HSC-I — coadd vs coadd/bg vs calexp](figures/perseus_calexp_check.png)
+
+Top row: the same field rendered three ways with a shared linear
+stretch (coadd / coadd/bg / file-tree `calexp` after pixel-perfect
+crop). Bottom row: pairwise residuals on a symmetric color scale
+(±0.036 ADU at the 99.5 percentile). `calexp − coadd` is uniformly
+zero apart from the stitching seam near column ~300; `calexp − coadd/bg`
+and `coadd − coadd/bg` show the same smooth bg-subtraction bowl and
+the same faint over-subtraction halo around the LSB galaxy at the
+center of the image — the very effect that motivates using `coadd/bg`
+for LSB morphology.
+
+**Practical consequence.** If you want bg-corrected coadd pixels for
+LSB galaxy work, you must go through the DAS cutout service with
+`kind='coadd/bg'`. Downloading `calexp` from the file tree is the
+wrong choice for that science.
 
 ### FITS internal notes (partial — see "Known gaps" below)
 
@@ -323,7 +361,11 @@ Update this section as you learn more.
   (FILTER, TRACT, PATCH, MAGZERO / FLUXMAG0, EXPTIME, MJD-OBS,
   TELESCOP, INSTRUME). The PrimaryHDU is mostly empty; useful
   metadata lives in the extension headers and we haven't surveyed
-  them yet.
+  them yet. (Partial: `calexp` extensions carry `EXTTYPE` ∈
+  {`IMAGE`, `MASK`, `VARIANCE`} and a `FLUXMAG0` zero-point on the
+  primary HDU.)
+- [x] **`calexp` is the `coadd` flavor (not `coadd/bg`)** — verified
+  2026-05-13 at the Perseus fixture in HSC-I; see the section above.
 - [ ] Whether `corr/` carries non-`BKGD` files for any visit-dir
   (suspected: `CORR-*` calibrated images, possibly `MASK-*` etc.).
 - [ ] Whether all 451 top-level numeric dirs follow the
