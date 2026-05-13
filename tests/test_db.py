@@ -10,7 +10,6 @@ import yaml
 
 from hscla_tool import db
 
-
 # A small but structurally valid knowledge-base fixture. Mirrors only the
 # fields that `db._validate` actually checks, kept short on purpose.
 GOOD_DOC: dict = {

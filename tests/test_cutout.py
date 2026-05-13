@@ -22,7 +22,6 @@ from astropy.io import fits
 
 from hscla_tool import config, cutout, db
 
-
 # --------------------------------------------------------------------------- #
 # Fake HTTP transport
 # --------------------------------------------------------------------------- #
@@ -42,8 +41,12 @@ class _FakeSession:
         self._response = response
         self.posts: list[dict[str, Any]] = []
 
-    def post(self, url: str, *, data: bytes, headers: dict[str, str], timeout: float) -> _FakeResponse:
-        self.posts.append({"url": url, "headers": dict(headers), "data": data, "timeout": timeout})
+    def post(
+        self, url: str, *, data: bytes, headers: dict[str, str], timeout: float,
+    ) -> _FakeResponse:
+        self.posts.append(
+            {"url": url, "headers": dict(headers), "data": data, "timeout": timeout}
+        )
         return self._response
 
 
@@ -129,7 +132,7 @@ def test_build_multipart_body_includes_required_columns() -> None:
     assert "#? rerun type filter tract ra dec sw sh image mask variance" in text
     assert "la2020 coadd HSC-I any " in text
     assert "deg " in text and "true true true" in text
-    assert f'name="list"' in text
+    assert 'name="list"' in text
     assert boundary in text
 
 

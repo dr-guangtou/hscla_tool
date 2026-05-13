@@ -16,7 +16,6 @@ import pytest
 
 from hscla_tool import config, sql
 
-
 # --------------------------------------------------------------------------- #
 # Fake HTTP transport
 # --------------------------------------------------------------------------- #
@@ -169,8 +168,14 @@ def test_run_sql_submits_polls_downloads_and_caches(
             "id": 42, "status": "waiting", "sql": "SELECT 1", "out_format": "csv",
         })],
         "status": [
-            _FakeResponse(json_body={"id": 42, "status": "running", "sql": "SELECT 1", "out_format": "csv"}),
-            _FakeResponse(json_body={"id": 42, "status": "done", "sql": "SELECT 1", "out_format": "csv"}),
+            _FakeResponse(json_body={
+                "id": 42, "status": "running",
+                "sql": "SELECT 1", "out_format": "csv",
+            }),
+            _FakeResponse(json_body={
+                "id": 42, "status": "done",
+                "sql": "SELECT 1", "out_format": "csv",
+            }),
         ],
         "download": [_FakeResponse(
             text="# one,msg\n1,hello\n",

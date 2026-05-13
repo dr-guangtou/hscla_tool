@@ -13,6 +13,18 @@ Format:
 - Rule: the one-line takeaway, if any (also persist to CLAUDE.md if it's a hard rule).
 ```
 
+## 2026-05-13 — Import-time credential check breaks `hscla --help` on cold installs
+- Context: Phase 7 added the `hscla` console script. Loading the entry point pulls in `hscla_tool/__init__.py`, which calls `load_credentials()` at import time.
+- Surprise: a fresh CI runner without `HSCLA_USR` / `HSCLA_PWD` set crashes before `hscla --help` can even show its usage. Same problem on a user's first install before they have set the env vars.
+- Resolution: the GitHub Actions offline-test job exports placeholder values (`ci-placeholder@example.com` / `ci-placeholder-password`) so the package can import. Live tests use the real secrets via `HSCLA_USR_SECRET` / `HSCLA_PWD_SECRET`. The behavior is documented in the CI workflow and the README's CLI section.
+- Rule: when a Python package fails at import time on a missing precondition, any CI / packaging environment that lifts it must satisfy that precondition or the entire CLI becomes unreachable.
+
+## 2026-05-13 — `ruff format` carries a large unintended diff for legacy code
+- Context: planning CI for Phase 7. The first draft of the workflow included a `ruff format --check` step alongside `ruff check`.
+- Surprise: `ruff format --check` would reformat 22 of 24 source / test files in the repo (older modules pre-date the use of `ruff format`). Including the step in CI would block every PR until those 22 files were reformatted — a stylistic 22-file diff to ship in the same PR as the CLI is too noisy.
+- Resolution: kept `ruff check` in CI, dropped `ruff format --check`. Logged the 22-file reformat as an explicit follow-up in `docs/todo.md`'s v1.0 section so the user can opt in deliberately later.
+- Rule: do not silently enable a linter rule (or formatter) whose first action is to touch most of the repo — surface the diff, decide explicitly, and ship the reformat as its own change.
+
 ---
 
 ## 2026-05-13 — HSCLA crossmatch is slow regardless of SQL shape

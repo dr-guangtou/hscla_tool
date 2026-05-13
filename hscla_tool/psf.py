@@ -52,7 +52,7 @@ from hscla_tool.cutout import NoCoverageError  # re-used cross-service "no data 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_RELEASE = "la2020"
-DEFAULT_KIND: "PsfKind" = "coadd"
+DEFAULT_KIND: PsfKind = "coadd"
 DEFAULT_TRACT = "auto"
 DEFAULT_PATCH = "auto"
 DEFAULT_HTTP_TIMEOUT = 120.0
@@ -97,7 +97,7 @@ class Psf:
             pass
 
     @property
-    def array(self) -> "np.ndarray":
+    def array(self) -> np.ndarray:
         """The 2D PSF kernel as a numpy array."""
 
         return np.asarray(self.psf_hdu.data)
@@ -122,9 +122,9 @@ class HscLaPsfClient:
 
     def __init__(
         self,
-        credentials: "config.Credentials | None" = None,
+        credentials: config.Credentials | None = None,
         *,
-        session: "requests.Session | None" = None,
+        session: requests.Session | None = None,
         release: str = DEFAULT_RELEASE,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
     ) -> None:
@@ -139,7 +139,7 @@ class HscLaPsfClient:
         self._url = f"{base}{endpoint}" + (f"?{query}" if query else "")
         self._field_name = str(api["multipart_field"])
         token = base64.standard_b64encode(
-            f"{self.credentials.username}:{self.credentials.password}".encode("utf-8")
+            f"{self.credentials.username}:{self.credentials.password}".encode()
         ).decode("ascii")
         self._auth_header = f"Basic {token}"
 
@@ -150,11 +150,11 @@ class HscLaPsfClient:
         *,
         band: str,
         kind: PsfKind = DEFAULT_KIND,
-        tract: "int | str" = DEFAULT_TRACT,
+        tract: int | str = DEFAULT_TRACT,
         patch: str = DEFAULT_PATCH,
         centered: bool = True,
         cache: bool = True,
-        cache_dir: "Path | None" = None,
+        cache_dir: Path | None = None,
     ) -> Psf:
         """Fetch one PSF kernel at (ra, dec) in the given band."""
 
@@ -240,7 +240,7 @@ def _cache_key(
     dec: float,
     band: str,
     kind: str,
-    tract: "int | str",
+    tract: int | str,
     patch: str,
     centered: bool,
     rerun: str,
@@ -266,14 +266,14 @@ def _build_multipart_body(
     rerun: str,
     kind: str,
     band: str,
-    tract: "int | str",
+    tract: int | str,
     patch: str,
     ra: float,
     dec: float,
     centered: bool,
     multipart_field: str,
     boundary: str = "HscLaPsfBoundary",
-) -> "tuple[bytes, str]":
+) -> tuple[bytes, str]:
     tract_str = "auto" if str(tract).lower() == "auto" else str(tract)
     patch_str = "auto" if str(patch).lower() == "auto" else str(patch)
     header = "#? rerun type filter tract patch ra dec centered\n"
@@ -293,7 +293,7 @@ def _build_multipart_body(
     return body, boundary
 
 
-def _extract_one_fits(tar_bytes: bytes) -> "bytes | None":
+def _extract_one_fits(tar_bytes: bytes) -> bytes | None:
     """Pull the (single) FITS file out of a PSF TAR response.
 
     Returns ``None`` when the TAR has zero members — HSCLA's signal for

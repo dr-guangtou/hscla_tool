@@ -58,7 +58,9 @@ def _cached_load(path_str: str) -> dict[str, Any]:
         except yaml.YAMLError as exc:
             raise KnowledgeBaseError(f"Failed to parse {path}: {exc}") from exc
     if not isinstance(data, dict):
-        raise KnowledgeBaseError(f"Top level of {path} must be a mapping, got {type(data).__name__}")
+        raise KnowledgeBaseError(
+            f"Top level of {path} must be a mapping, got {type(data).__name__}"
+        )
     _validate(data, source=path)
     return data
 

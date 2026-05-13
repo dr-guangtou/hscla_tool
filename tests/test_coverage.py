@@ -17,7 +17,6 @@ import pytest
 
 from hscla_tool import coverage, db
 
-
 _BETWEEN_RE = re.compile(r"BETWEEN\s+([-\d.eE+]+)\s+AND\s+([-\d.eE+]+)")
 
 

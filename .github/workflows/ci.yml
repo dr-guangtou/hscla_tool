@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Also run live HSCLA tests (requires repo secrets)."
+        type: boolean
+        default: false
+
+jobs:
+  lint-and-test:
+    name: ruff + pytest (offline)
+    runs-on: ubuntu-latest
+    env:
+      # The package imports `hscla_tool` at every test entry, and
+      # `hscla_tool/__init__.py` calls `load_credentials()` which raises
+      # if these are unset. Offline tests stub the network themselves,
+      # so any non-empty placeholder is fine here.
+      HSCLA_USR: ci-placeholder@example.com
+      HSCLA_PWD: ci-placeholder-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Pin Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check
+
+      - name: Pytest (offline only)
+        run: uv run pytest -q
+
+  live-tests:
+    name: pytest --live (HSCLA server)
+    # Only on manual dispatch with the toggle on, and only when the
+    # repo secrets are configured. The job is skipped silently
+    # otherwise so forks and CI on PRs without secrets still pass.
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.run_live == 'true'
+    runs-on: ubuntu-latest
+    env:
+      HSCLA_USR: ${{ secrets.HSCLA_USR_SECRET }}
+      HSCLA_PWD: ${{ secrets.HSCLA_PWD_SECRET }}
+      HSCLA_LIVE_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard against missing secrets
+        run: |
+          if [ -z "${HSCLA_USR:-}" ] || [ -z "${HSCLA_PWD:-}" ]; then
+            echo "HSCLA_USR_SECRET / HSCLA_PWD_SECRET are not configured in this repo."
+            echo "Skip the live job by leaving 'run_live' unchecked, or add the secrets first."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Pin Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Pytest (with live HSCLA tests)
+        run: uv run pytest -q

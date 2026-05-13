@@ -33,9 +33,9 @@ from __future__ import annotations
 import base64
 import logging
 import urllib.parse
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import requests
 
@@ -146,9 +146,9 @@ class HscLaArchiveClient:
 
     def __init__(
         self,
-        credentials: "config.Credentials | None" = None,
+        credentials: config.Credentials | None = None,
         *,
-        session: "requests.Session | None" = None,
+        session: requests.Session | None = None,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
     ) -> None:
@@ -157,7 +157,7 @@ class HscLaArchiveClient:
         self._base_url = base_url
         self.timeout = timeout
         token = base64.standard_b64encode(
-            f"{self.credentials.username}:{self.credentials.password}".encode("utf-8")
+            f"{self.credentials.username}:{self.credentials.password}".encode()
         ).decode("ascii")
         self._auth_header = f"Basic {token}"
 
@@ -168,7 +168,7 @@ class HscLaArchiveClient:
         band: str,
         kind: str,
         *,
-        dest: "Path | None" = None,
+        dest: Path | None = None,
         force: bool = False,
         resume: bool = True,
     ) -> ArchiveFile:

@@ -155,13 +155,48 @@ Local copies of the small HSCLA metadata catalogs, so coverage / overlap / looku
 
 ---
 
-## Phase 7 — CLI and docs polish
+## Phase 7 — CLI and docs polish *(done)*
 
-- [ ] `hscla` console script (entry point in `pyproject.toml`) with subcommands mirroring the U1–U8 stories.
-- [ ] README rewrite: short narrative pointing into `docs/SPEC.md` and `data/hscla_db.yaml`.
-- [ ] CI: GitHub Actions running `ruff` and `pytest` (network tests gated by a secret).
+- [x] `hscla` console script (entry point in `pyproject.toml`) with eight subcommands mirroring the U1–U8 stories: `coverage`, `frames`, `cutout`, `psf`, `sql`, `crossmatch`, `mirror`, `archive`.
+- [x] README updated with a CLI quick tour pointing at every subcommand.
+- [x] CI: `.github/workflows/ci.yml` runs `ruff check` and the offline `pytest` suite on every push and PR. A separate `workflow_dispatch` job runs the live tests when triggered with `run_live=true` and the `HSCLA_USR_SECRET` / `HSCLA_PWD_SECRET` repo secrets are present.
+- [x] `tests/test_cli.py`: 22 offline tests covering argparse plumbing, default-output paths, every subcommand, `--quiet` behavior, and structured exit codes (`NoCoverageError` → 2, `MirrorError` → 4, …). Full suite: **131 passed + 10 gated-live**.
 
-**Acceptance.** `hscla coverage 49.2658 41.2486 --size-deg 0.03` prints the list of covered bands.
+**Acceptance.** `hscla coverage 49.2658 41.2486 --size-deg 0.03 --source local` prints the list of covered bands. Confirmed live on this machine (Perseus fixture, four bands).
+
+### Review (2026-05-13)
+- The CLI is a thin wrapper: each subcommand is one function call into the existing module plus a friendly summary. The tests stub each module function and verify the surface (argparse, output paths, exit codes) rather than re-testing the underlying behavior, which keeps the offline test runtime under one second.
+- Output defaults follow the user's preference: friendly auto-named files under `./outputs/<subkind>/` (e.g. `cutout_ra49.2658_dec+41.2486_HSC-I_108as_coadd.fits`), progress to stderr by default, `--quiet` to suppress. For `cutout` and `psf` we hardlink the hash-cached file to the friendly path so the cache stays content-addressed and the on-disk footprint is unchanged.
+- Structured exit codes (0/2/3/4/5/6/130) let shell scripts branch cleanly. `NoCoverageError` → 2 means "your script's loop can `continue` past empty regions"; `MissingCredentialsError` → 3 surfaces the env-var hint without a Python traceback.
+- CI required setting placeholder `HSCLA_USR` / `HSCLA_PWD` env vars in the offline-test job because the package's import-time credential check runs before pytest gets a chance to set its own fixtures. The live-test job is a separate `workflow_dispatch` workflow gated by the `run_live=true` input *and* the presence of `HSCLA_USR_SECRET` / `HSCLA_PWD_SECRET` repository secrets, so forks and unconfigured installs default to "skip live tests safely".
+- `ruff check` flagged eight pre-existing line-too-long issues across the older modules and tests; those are now wrapped. `ruff format` would touch 22 files (the older modules weren't formatted by ruff); deferred — keeping it out of CI until the user opts in.
+
+---
+
+## v1.0 ready
+
+With Phase 7 complete the toolkit covers the eight original user stories
+end-to-end:
+
+- **Library**: nine Python modules (`config`, `db`, `sql`, `coverage`,
+  `mirror`, `cutout`, `mask`, `psf`, `crossmatch`, `archive`) plus the
+  validated YAML knowledge base.
+- **CLI**: eight subcommands via the `hscla` entry point.
+- **Tests**: 131 offline + 10 gated-live, all green; offline suite
+  finishes in ~3 seconds.
+- **CI**: ruff lint + pytest on every push/PR; live tests are an
+  explicit, secret-gated workflow_dispatch.
+- **Docs**: `README.md`, `docs/SPEC.md`, `docs/lessons.md` (15+
+  entries), `data/hscla_db.yaml`, `CLAUDE.md`.
+
+Outstanding follow-ups, none blocking v1.0:
+
+- Local-mirror crossmatch against a future Parquet mirror of
+  `la2020.forced` (the server-side path is shipped as a placeholder
+  because it takes 30–45 minutes).
+- `ruff format` opt-in across the legacy modules (22-file diff).
+- Bulk `fetch_cutouts(list[...])` API on top of the existing
+  single-region wire format.
 
 ---
 

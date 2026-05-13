@@ -39,12 +39,13 @@ import requests
 from astropy.io import fits
 from astropy.wcs import WCS
 
-from hscla_tool import config, db, mask as _mask
+from hscla_tool import config, db
+from hscla_tool import mask as _mask
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_RELEASE = "la2020"
-DEFAULT_KIND: "CutoutKind" = "coadd"
+DEFAULT_KIND: CutoutKind = "coadd"
 DEFAULT_TRACT = "any"
 DEFAULT_HTTP_TIMEOUT = 180.0  # seconds; cutouts can be large
 
@@ -91,9 +92,9 @@ class Cutout:
     kind: str
     fits_path: Path
     hdul: fits.HDUList = field(repr=False)
-    image: "fits.ImageHDU | None" = field(repr=False, default=None)
-    mask_hdu: "fits.ImageHDU | None" = field(repr=False, default=None)
-    variance: "fits.ImageHDU | None" = field(repr=False, default=None)
+    image: fits.ImageHDU | None = field(repr=False, default=None)
+    mask_hdu: fits.ImageHDU | None = field(repr=False, default=None)
+    variance: fits.ImageHDU | None = field(repr=False, default=None)
 
     def close(self) -> None:
         """Close the underlying FITS file handle. Safe to call twice."""
@@ -115,7 +116,7 @@ class Cutout:
                 continue
         raise CutoutError("no usable WCS found in cutout FITS")
 
-    def mask_planes(self, planes: "list[str] | None" = None) -> dict[str, "object"]:
+    def mask_planes(self, planes: list[str] | None = None) -> dict[str, object]:
         """Decode the mask HDU into named boolean arrays. See `hscla_tool.mask`."""
 
         if self.mask_hdu is None:
@@ -133,9 +134,9 @@ class HscLaCutoutClient:
 
     def __init__(
         self,
-        credentials: "config.Credentials | None" = None,
+        credentials: config.Credentials | None = None,
         *,
-        session: "requests.Session | None" = None,
+        session: requests.Session | None = None,
         release: str = DEFAULT_RELEASE,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
     ) -> None:
@@ -148,7 +149,7 @@ class HscLaCutoutClient:
         self._endpoint = str(api["endpoint"])
         self._field_name = str(api["multipart_field"])
         token = base64.standard_b64encode(
-            f"{self.credentials.username}:{self.credentials.password}".encode("utf-8")
+            f"{self.credentials.username}:{self.credentials.password}".encode()
         ).decode("ascii")
         self._auth_header = f"Basic {token}"
 
@@ -160,11 +161,11 @@ class HscLaCutoutClient:
         size_arcsec: float,
         band: str,
         kind: CutoutKind = DEFAULT_KIND,
-        tract: "int | str" = DEFAULT_TRACT,
+        tract: int | str = DEFAULT_TRACT,
         with_variance: bool = True,
         with_mask: bool = True,
         cache: bool = True,
-        cache_dir: "Path | None" = None,
+        cache_dir: Path | None = None,
     ) -> Cutout:
         """Fetch a single HSCLA cutout. See module docstring for the wire format.
 
@@ -273,7 +274,7 @@ def _cache_key(
     size_arcsec: float,
     band: str,
     kind: str,
-    tract: "int | str",
+    tract: int | str,
     with_variance: bool,
     with_mask: bool,
     rerun: str,
@@ -300,7 +301,7 @@ def _build_multipart_body(
     rerun: str,
     kind: str,
     band: str,
-    tract: "int | str",
+    tract: int | str,
     ra: float,
     dec: float,
     half_deg: float,
@@ -309,7 +310,7 @@ def _build_multipart_body(
     with_variance: bool,
     multipart_field: str,
     boundary: str = "HscLaToolBoundary",
-) -> "tuple[bytes, str]":
+) -> tuple[bytes, str]:
     tract_str = "any" if str(tract).lower() == "any" else str(tract)
     header = (
         "#? rerun type filter tract ra dec sw sh image mask variance\n"
@@ -333,7 +334,7 @@ def _build_multipart_body(
     return body, boundary
 
 
-def _extract_one_fits(tar_bytes: bytes) -> "bytes | None":
+def _extract_one_fits(tar_bytes: bytes) -> bytes | None:
     """Pull the (single) FITS file out of an HSCLA cutout TAR response.
 
     Returns ``None`` if the TAR is empty (the server's no-coverage signal).
@@ -358,7 +359,7 @@ def _split_hdul(
     *,
     expect_mask: bool,
     expect_variance: bool,
-) -> "tuple[fits.ImageHDU | None, fits.ImageHDU | None, fits.ImageHDU | None]":
+) -> tuple[fits.ImageHDU | None, fits.ImageHDU | None, fits.ImageHDU | None]:
     """Identify which HDUs in the cutout file are image / mask / variance.
 
     HSCLA writes them in the order ``[PRIMARY, image, mask, variance]``
@@ -366,9 +367,9 @@ def _split_hdul(
     that ordering plus a check that the mask HDU is integer-typed.
     """
 
-    image_hdu: "fits.ImageHDU | None" = None
-    mask_hdu: "fits.ImageHDU | None" = None
-    variance_hdu: "fits.ImageHDU | None" = None
+    image_hdu: fits.ImageHDU | None = None
+    mask_hdu: fits.ImageHDU | None = None
+    variance_hdu: fits.ImageHDU | None = None
 
     data_hdus = [hdu for hdu in hdul[1:] if hdu.data is not None]
     expected = 1 + int(expect_mask) + int(expect_variance)

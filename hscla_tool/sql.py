@@ -29,9 +29,9 @@ import io
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -56,7 +56,7 @@ class SqlError(RuntimeError):
 class JobError(SqlError):
     """Raised when a submitted SQL job finishes in a non-`done` state."""
 
-    def __init__(self, job: "Job"):
+    def __init__(self, job: Job):
         self.job = job
         msg = job.raw.get("error") or f"job {job.id} ended with status={job.status!r}"
         super().__init__(msg)
@@ -77,7 +77,7 @@ class Job:
     raw: dict = field(repr=False)
 
     @classmethod
-    def from_response(cls, payload: dict) -> "Job":
+    def from_response(cls, payload: dict) -> Job:
         return cls(
             id=int(payload["id"]),
             status=str(payload["status"]),
@@ -136,7 +136,13 @@ class HscLaClient:
         self._logged_in = True
         LOGGER.debug("HSCLA login ok, session cookie set")
 
-    def _post(self, endpoint_key: str, body: dict[str, Any], *, stream: bool = False) -> requests.Response:
+    def _post(
+        self,
+        endpoint_key: str,
+        body: dict[str, Any],
+        *,
+        stream: bool = False,
+    ) -> requests.Response:
         self.login()
         url = self._base_url + self._endpoints[endpoint_key]
         full_body = {

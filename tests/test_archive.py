@@ -10,7 +10,6 @@ import pytest
 
 from hscla_tool import archive, config
 
-
 # --------------------------------------------------------------------------- #
 # URL + path helpers
 # --------------------------------------------------------------------------- #
@@ -64,7 +63,7 @@ class _FakeStreamResponse:
         self.reason = reason
         self.headers = headers or {"content-type": "application/octet-stream"}
 
-    def __enter__(self) -> "_FakeStreamResponse":
+    def __enter__(self) -> _FakeStreamResponse:
         return self
 
     def __exit__(self, *args: Any) -> None:

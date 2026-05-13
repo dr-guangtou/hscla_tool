@@ -55,8 +55,9 @@ gotchas in [`docs/lessons.md`](docs/lessons.md).
   and `download_forced_catalog(...)` (plus a generic
   `download_patch_file(..., kind=)`) hit the HSCLA file tree
   directly, resumable via HTTP `Range:` requests.
-
-Still to come (see [`docs/todo.md`](docs/todo.md)): CLI.
+- `hscla` console script — every module above is also reachable as a
+  subcommand (`hscla coverage`, `hscla cutout`, `hscla psf`, …). See
+  the [CLI quick tour](#cli-quick-tour) below.
 
 ## Credentials
 
@@ -248,6 +249,46 @@ mirroring the upstream layout. Downloads are resumable: an
 interrupted download leaves a `.tmp` next to the destination and the
 next call sends `Range: bytes=<offset>-` to pick up where it stopped.
 
+## CLI quick tour
+
+After `uv sync`, the `hscla` command is on your `$PATH` (via the
+`hscla = hscla_tool.cli:main` entry point in `pyproject.toml`). Every
+file-producing subcommand auto-names its output under
+`./outputs/<subkind>/` unless you pass `--out`. Friendly progress lines
+go to **stderr**; the final result path goes to **stdout** so the
+command composes with shell pipelines. Pass `--quiet` / `-q` to drop
+the progress chatter.
+
+```bash
+# Coverage and provenance
+hscla coverage 49.2658 41.2486 --size-deg 0.03
+hscla coverage 49.2658 41.2486 --size-deg 0.03 --source local
+hscla frames   49.2658 41.2486 --size-deg 0.03 --detailed
+
+# Cutouts and PSFs (saved under ./outputs/cutouts/ and ./outputs/psfs/)
+hscla cutout 49.2658 41.2486 --size-arcsec 108 --band HSC-I
+hscla psf    49.2658 41.2486 --band HSC-I
+
+# SQL
+hscla sql "SELECT COUNT(*) FROM la2020.mosaic" --preview
+hscla sql --file my_query.sql                    # full submit/poll/download
+
+# Crossmatch (prints a slow-server warning; expect 30-45 min)
+hscla crossmatch inputs.csv --radius-arcsec 1.0 --nearest-only
+
+# Local Parquet mirrors of the small metadata catalogs
+hscla mirror status
+hscla mirror build mosaic
+
+# Direct file-tree download (one per-patch FITS)
+hscla archive list 15548 1,6 HSC-I
+hscla archive download 15548 1,6 HSC-I --kind calexp
+```
+
+Exit codes: `0` on success, `2` for "no HSCLA coverage", `3` for
+missing credentials, `4` for a missing local mirror, `5` for a fetch
+failure, `6` for bad arguments, `130` on Ctrl-C.
+
 ## Reference: HSCLA endpoints and data
 
 - HSC Legacy Archive: https://hscla.mtk.nao.ac.jp/doc/home/
@@ -380,6 +421,12 @@ appear in every new module's tests. They live in
 - `uv sync` — install runtime + dev dependencies.
 - `uv run pytest -q` — run the offline test suite.
 - `HSCLA_LIVE_TESTS=1 uv run pytest -q` — also run the opt-in live tests.
+- `uv run ruff check` — lint the codebase (same check CI runs).
+- GitHub Actions in `.github/workflows/ci.yml` run `ruff check` and the
+  offline `pytest` suite on every push and PR. A separate
+  `workflow_dispatch` job runs the live tests when triggered with
+  `run_live=true` and the `HSCLA_USR_SECRET` / `HSCLA_PWD_SECRET`
+  repository secrets are configured.
 - Architecture: [`docs/SPEC.md`](docs/SPEC.md).
 - Plan and phase status: [`docs/todo.md`](docs/todo.md).
 - Gotchas and rationale: [`docs/lessons.md`](docs/lessons.md).

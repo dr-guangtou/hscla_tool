@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 import pandas as pd
 
@@ -72,12 +72,12 @@ def match(
     *,
     ra_col: str = DEFAULT_RA_COL,
     dec_col: str = DEFAULT_DEC_COL,
-    id_col: "str | None" = None,
+    id_col: str | None = None,
     radius_arcsec: float = DEFAULT_RADIUS_ARCSEC,
     release: str = DEFAULT_RELEASE,
     extra_columns: Iterable[str] = (),
     nearest_only: bool = False,
-    client: "_sql.HscLaClient | None" = None,
+    client: _sql.HscLaClient | None = None,
     cache: bool = True,
 ) -> pd.DataFrame:
     """Crossmatch an input catalog against HSCLA `forced` photometry.
@@ -168,7 +168,7 @@ def _build_match_sql(
     table: pd.DataFrame,
     ra_col: str,
     dec_col: str,
-    id_col: "str | None",
+    id_col: str | None,
     radius_arcsec: float,
     release: str,
     extra_columns: tuple[str, ...],

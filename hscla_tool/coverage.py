@@ -134,7 +134,7 @@ def region_coverage(
     source: Source = "server",
     release: str = DEFAULT_RELEASE,
     client: _sql.HscLaClient | None = None,
-    mirror_df: "pd.DataFrame | None" = None,
+    mirror_df: pd.DataFrame | None = None,
 ) -> RegionCoverage:
     """Which HSC bands have a coadd patch overlapping the requested region?
 
@@ -189,7 +189,7 @@ def _region_coverage_local(
     dec: float,
     *,
     size_deg: float,
-    mirror_df: "pd.DataFrame | None",
+    mirror_df: pd.DataFrame | None,
 ) -> RegionCoverage:
     """Exact bounding-box overlap against the local mosaic mirror."""
 
@@ -256,7 +256,7 @@ def frame_coverage(
     release: str = DEFAULT_RELEASE,
     detailed: bool = False,
     client: _sql.HscLaClient | None = None,
-    mirror_df: "pd.DataFrame | None" = None,
+    mirror_df: pd.DataFrame | None = None,
 ) -> FrameCoverage:
     """Which single-CCD frames overlap the requested region?
 
@@ -311,7 +311,9 @@ def frame_coverage(
         )
         detail = cli.preview_sql(detail_sql)
         fields = detail.get("fields", [])
-        frames = tuple({k: v for k, v in zip(fields, row)} for row in detail.get("rows", []))
+        frames = tuple(
+            dict(zip(fields, row, strict=True)) for row in detail.get("rows", [])
+        )
     return FrameCoverage(
         filters=filters,
         band_summary=band_summary,
@@ -325,7 +327,7 @@ def _frame_coverage_local(
     *,
     size_deg: float,
     detailed: bool,
-    mirror_df: "pd.DataFrame | None",
+    mirror_df: pd.DataFrame | None,
 ) -> FrameCoverage:
     df = mirror_df if mirror_df is not None else _mirror.load_mirror("frame")
     margin = FRAME_HALF_DEG + max(0.0, float(size_deg)) / 2.0

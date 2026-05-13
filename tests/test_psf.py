@@ -20,7 +20,6 @@ from astropy.io import fits
 
 from hscla_tool import config, cutout, db, psf
 
-
 # --------------------------------------------------------------------------- #
 # Fake HTTP transport
 # --------------------------------------------------------------------------- #
@@ -40,8 +39,12 @@ class _FakeSession:
         self._response = response
         self.posts: list[dict[str, Any]] = []
 
-    def post(self, url: str, *, data: bytes, headers: dict[str, str], timeout: float) -> _FakeResponse:
-        self.posts.append({"url": url, "headers": dict(headers), "data": data, "timeout": timeout})
+    def post(
+        self, url: str, *, data: bytes, headers: dict[str, str], timeout: float,
+    ) -> _FakeResponse:
+        self.posts.append(
+            {"url": url, "headers": dict(headers), "data": data, "timeout": timeout}
+        )
         return self._response
 
 

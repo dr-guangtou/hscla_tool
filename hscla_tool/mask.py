@@ -20,7 +20,7 @@ Use it like::
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 from astropy.io import fits
