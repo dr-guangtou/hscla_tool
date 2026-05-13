@@ -560,7 +560,13 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Square box edge in arcseconds (default: 108).")
     p_co.add_argument("--band", default="HSC-I",
                       help="HSC band (e.g., HSC-G/R/I/Z/Y). Default: HSC-I.")
-    p_co.add_argument("--kind", default="coadd", choices=["coadd", "warp", "frame"])
+    p_co.add_argument(
+        "--kind", default="coadd", choices=["coadd", "coadd/bg", "warp", "frame"],
+        help="Cutout data product (default: coadd). Use 'coadd/bg' for the "
+             "full focal-plane background-corrected variant, which is better "
+             "for low-surface-brightness galaxy morphology than the default "
+             "'coadd' (per-visit local bg subtraction; tends to over-subtract).",
+    )
     p_co.add_argument("--tract", default="any", help="Tract id or 'any' (default).")
     p_co.add_argument("--no-mask", action="store_true",
                       help="Skip the mask HDU.")

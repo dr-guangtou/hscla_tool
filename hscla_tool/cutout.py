@@ -24,6 +24,20 @@ Two entry points, both built on the same wire format:
   (``None`` for no-coverage rows) and whose ``.failures`` list carries
   the per-row exceptions.
 
+The ``kind`` argument selects the data product. Four values are
+supported in HSCLA2020:
+
+- ``'coadd'`` (default) — coadd with **per-visit local background
+  subtraction**. Tends to over-subtract the sky and eat
+  low-surface-brightness flux; fine for compact sources.
+- ``'coadd/bg'`` — coadd with **full focal-plane background
+  correction**. Recommended for LSB galaxy morphology and structure.
+  Same HDU layout as ``'coadd'``; the TAR member is named
+  ``<N>-coadd+bg-<band>-<tract>-<release>.fits`` instead of the
+  usual ``<N>-cutout-...`` form (slash → plus in the filename).
+- ``'warp'`` — single-visit warps onto the coadd grid.
+- ``'frame'`` — single-CCD frames.
+
 Cached FITS live at ``${HSCLA_TOOL_CACHE}/cutouts/<content-hash>.fits``;
 the cache key is the SHA-256 hash of the request tuple, so re-running
 the same request — single or batch — is a free local read.
@@ -72,7 +86,7 @@ DEFAULT_KIND: CutoutKind = "coadd"
 DEFAULT_TRACT = "any"
 DEFAULT_HTTP_TIMEOUT = 180.0  # seconds; cutouts can be large
 
-CutoutKind = Literal["coadd", "warp", "frame"]
+CutoutKind = Literal["coadd", "coadd/bg", "warp", "frame"]
 
 # Hard cap on how many rows a single POST may carry. The upstream
 # manual documents 990 as the per-request limit on the multipart
@@ -558,10 +572,17 @@ def _extract_one_fits(tar_bytes: bytes) -> bytes | None:
     return None
 
 
-# Filename pattern for one TAR member: "<prefix>-cutout-<band>-<tract>-<release>.fits".
-# The leading integer prefix is the 1-indexed line number of the source
-# coordlist (header is line 1), confirmed by live probe on 2026-05-13.
-_TAR_PREFIX_RE = re.compile(r"^(\d+)-cutout-")
+# Filename pattern for one TAR member:
+#   "<prefix>-<type_token>-<band>-<tract>-<release>.fits"
+# where <type_token> depends on the request `type` value:
+#   * 'coadd' / 'warp' / 'frame' -> 'cutout'
+#   * 'coadd/bg'                 -> 'coadd+bg'   (slash becomes '+')
+# Both forms were confirmed by live probe on 2026-05-13. The leading
+# integer prefix is the 1-indexed line number of the source coordlist
+# (header is line 1). We match on the prefix only; the BatchResult
+# already carries the original request.kind from the caller, so we
+# don't depend on the token here.
+_TAR_PREFIX_RE = re.compile(r"^(\d+)-[A-Za-z0-9+]+-")
 
 
 def _extract_tar_by_prefix(tar_bytes: bytes) -> dict[int, bytes]:

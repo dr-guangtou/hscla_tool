@@ -169,6 +169,12 @@ cached under `${HSCLA_TOOL_CACHE}/cutouts/` by a SHA-256 hash of the
 request, so a re-run of the same script reads the local file instead
 of refetching.
 
+For LSB galaxy morphology, pass `kind="coadd/bg"` — that variant uses
+full focal-plane background correction instead of the default
+per-visit local subtraction (which tends to over-subtract). See
+[`docs/USAGE.md`](docs/USAGE.md#pick-coadd-vs-coaddbg-for-lsb-morphology)
+for the comparison.
+
 ### Bulk cutouts (one POST, up to 990 rows)
 
 For many cutouts at once, use `fetch_cutouts`. The underlying

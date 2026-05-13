@@ -175,6 +175,43 @@ hscla cutout 49.2657595 41.2485927 --size-arcsec 108 --band HSC-I
 - FITS files are cached under `${HSCLA_TOOL_CACHE}/cutouts/<hash>.fits`.
   A re-run of the same request is a free local read. Pass
   `cache=False` to force a refetch.
+- The default `kind='coadd'` applies a per-visit *local* background
+  subtraction and tends to over-subtract the sky, eating
+  low-surface-brightness flux. For LSB galaxy morphology / structure
+  analyses, prefer `kind='coadd/bg'` — see the next recipe.
+
+### …pick `coadd` vs `coadd/bg` for LSB morphology?
+
+HSCLA2020 serves two coadd flavors through the same cutout endpoint;
+the only difference is the **background-subtraction policy**:
+
+| `kind`        | Background policy                                | When to use it                                            |
+| ------------- | ------------------------------------------------ | --------------------------------------------------------- |
+| `'coadd'`     | Per-visit local bg subtraction (default).        | Compact sources; quick QA. Tends to over-subtract sky.    |
+| `'coadd/bg'`  | Full focal-plane bg correction at coadd time.    | **LSB galaxy morphology and structure** — recommended.    |
+
+```python
+c = cutout.fetch_cutout(
+    ra=49.2657595, dec=41.2485927,
+    size_arcsec=108.0, band="HSC-I",
+    kind="coadd/bg",          # was: kind="coadd"
+)
+```
+
+CLI:
+```bash
+hscla cutout 49.2657595 41.2485927 --size-arcsec 108 --band HSC-I --kind coadd/bg
+```
+
+Both flavors share the same HDU layout (image + mask + variance) and
+the same `Cutout` result type. Confirmed live for HSC-I at the
+Perseus LSBG fixture on 2026-05-13; the median pixel value differs
+between the two by milli-ADU, consistent with the bg-correction
+difference. Test: `tests/test_cutout.py::test_live_fetch_cutout_coadd_bg_perseus_i_band`.
+
+The cache key includes `kind`, so a `coadd` cutout and a `coadd/bg`
+cutout at the same (ra, dec, band, size) live in different cached
+FITS files — no risk of one overwriting the other.
 
 ### …decode the mask plane into named bits?
 

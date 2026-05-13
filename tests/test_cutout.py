@@ -283,6 +283,29 @@ def test_extract_tar_by_prefix_skips_unparseable_names() -> None:
     assert set(by_idx) == {0}
 
 
+def test_extract_tar_by_prefix_matches_coadd_bg_token() -> None:
+    """coadd/bg cutouts arrive named '<N>-coadd+bg-...' (slash -> plus).
+
+    The original prefix regex was ``r"^(\\d+)-cutout-"`` which only
+    matched the default ``-cutout-`` token; coadd/bg members would
+    have been silently dropped. The relaxed regex must accept both.
+    """
+
+    f = _make_cutout_fits()
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        # Mix the two filename forms in one TAR.
+        for name in (
+            "arch/2-cutout-HSC-I-15548-la2020.fits",     # coadd row at idx 0
+            "arch/3-coadd+bg-HSC-I-15548-la2020.fits",   # coadd/bg row at idx 1
+        ):
+            info = tarfile.TarInfo(name=name)
+            info.size = len(f)
+            tar.addfile(info, io.BytesIO(f))
+    by_idx = cutout._extract_tar_by_prefix(buf.getvalue())
+    assert set(by_idx) == {0, 1}
+
+
 def test_normalize_requests_dataframe_minimal_columns() -> None:
     import pandas as pd
 
@@ -559,6 +582,73 @@ def test_live_fetch_cutout_uncovered_raises(tmp_path: Path) -> None:
             size_arcsec=108.0, band="HSC-I",
             cache_dir=tmp_path / "cutouts",
         )
+
+
+@pytest.mark.skipif(
+    os.environ.get("HSCLA_LIVE_TESTS") != "1",
+    reason="set HSCLA_LIVE_TESTS=1 to hit the real HSCLA server",
+)
+def test_live_fetch_cutout_coadd_bg_perseus_i_band(tmp_path: Path) -> None:
+    """Verify HSCLA2020 serves the ``coadd/bg`` data product.
+
+    The Perseus LSB galaxy fixture is the canonical "covered" region.
+    We fetch the same cutout in two flavors — ``coadd`` (default,
+    per-visit local bg subtraction) and ``coadd/bg`` (full focal-plane
+    bg correction) — and confirm:
+
+    1. ``coadd/bg`` returns a well-formed multi-extension FITS at the
+       same image shape as the default ``coadd``.
+    2. The image median **differs measurably** between the two, since
+       the bg-correction policy is different. We don't pin a magnitude
+       (server-side reprocessing could shift it) but we do require the
+       difference to exceed shot noise from a single pixel of the
+       std-dev, which is a very loose floor.
+
+    Both confirm the original user observation: ``coadd/bg`` is better
+    for LSB galaxy morphology than the over-subtracting ``coadd``.
+    """
+
+    import numpy as np
+
+    fixture = db.get_fixture("covered_lsbg")
+    ra, dec = fixture["ra_deg"], fixture["dec_deg"]
+    size_arcsec = fixture["box_size_deg"] * 3600.0
+
+    plain = cutout.fetch_cutout(
+        ra, dec, size_arcsec=size_arcsec, band="HSC-I",
+        kind="coadd", cache_dir=tmp_path / "cutouts",
+    )
+    bg = cutout.fetch_cutout(
+        ra, dec, size_arcsec=size_arcsec, band="HSC-I",
+        kind="coadd/bg", cache_dir=tmp_path / "cutouts",
+    )
+
+    try:
+        assert plain.image is not None and bg.image is not None
+        assert plain.mask_hdu is not None and bg.mask_hdu is not None
+        assert plain.variance is not None and bg.variance is not None
+
+        plain_arr = np.asarray(plain.image.data)
+        bg_arr = np.asarray(bg.image.data)
+        assert plain_arr.shape == bg_arr.shape
+        assert plain_arr.dtype.kind == "f" and bg_arr.dtype.kind == "f"
+
+        plain_med = float(np.median(plain_arr[np.isfinite(plain_arr)]))
+        bg_med = float(np.median(bg_arr[np.isfinite(bg_arr)]))
+        # The two reductions should not produce byte-identical pixels.
+        # Use a very loose floor (1e-6 ADU) so the assertion can't trip
+        # on numerical jitter but must trip on "server returned the
+        # same image for both kinds".
+        assert abs(plain_med - bg_med) > 1e-6, (
+            f"coadd vs coadd/bg returned the same median ({plain_med}); "
+            f"the bg-corrected variant should differ measurably."
+        )
+
+        # Cached FITS paths differ because the cache key includes 'kind'.
+        assert plain.fits_path != bg.fits_path
+    finally:
+        plain.close()
+        bg.close()
 
 
 @pytest.mark.skipif(

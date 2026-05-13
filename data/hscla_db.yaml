@@ -136,7 +136,14 @@ cutout_api:
     header_prefix: "#?"
     columns:
       - rerun         # e.g. la2020
-      - type          # coadd | warp | frame
+      - type          # coadd | coadd/bg | warp | frame
+                      # 'coadd'    - per-visit local background subtraction
+                      #              (tends to over-subtract; OK for compact
+                      #              sources).
+                      # 'coadd/bg' - full focal-plane bg correction; better
+                      #              for low-surface-brightness morphology.
+                      #              Same HDU layout as 'coadd'; only the
+                      #              archive_layout token differs (see below).
       - filter        # HSC-G, HSC-R, ... or NB0515, ...
       - tract         # integer or 'any'
       - ra            # "<float>deg"
@@ -148,7 +155,11 @@ cutout_api:
       - variance      # 'true' or 'false'
   response:
     content_type: application/x-tar
-    archive_layout: "arch-<tag>/<index>-cutout-<filter>-<tract>-<rerun>.fits"
+    # The <type_token> in the filename depends on the request 'type':
+    #   coadd / warp / frame -> 'cutout'
+    #   coadd/bg             -> 'coadd+bg'   (slash becomes plus)
+    # Confirmed by live probe on 2026-05-13.
+    archive_layout: "arch-<tag>/<index>-<type_token>-<filter>-<tract>-<rerun>.fits"
     fits_layout:
       - hdu_0: PRIMARY (no data; headers only)
       - hdu_1: image (float32) when image=true

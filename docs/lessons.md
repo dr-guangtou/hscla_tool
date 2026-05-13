@@ -13,6 +13,15 @@ Format:
 - Rule: the one-line takeaway, if any (also persist to CLAUDE.md if it's a hard rule).
 ```
 
+## 2026-05-13 — Cutout TAR filename token depends on the request `type`
+- Context: Verifying the `coadd/bg` (full focal-plane bg correction) cutout flavor for the Perseus LSB galaxy fixture in HSC-I — a different data product than the default `coadd` (per-visit local bg subtraction) and the recommended choice for LSB galaxy morphology.
+- Surprise: the TAR member filename token is **not** a constant `cutout`. Live probe on 2026-05-13 produced two members in one response:
+  - request `type=coadd`    → `<N>-cutout-<band>-<tract>-<release>.fits`
+  - request `type=coadd/bg` → `<N>-coadd+bg-<band>-<tract>-<release>.fits` (the slash in the request value becomes `+` in the filename)
+- Impact: the original `_TAR_PREFIX_RE = r"^(\d+)-cutout-"` would have silently dropped every `coadd/bg` member from a batched response. A mixed batch of `coadd` and `coadd/bg` rows would have looked like "half the rows have no coverage", with no error.
+- Resolution: relaxed the regex to `r"^(\d+)-[A-Za-z0-9+]+-"` (match any non-empty type-token after the prefix dash). Updated `CutoutKind` to include `coadd/bg`, the CLI `--kind` choices, the `cutout_api.coord_list_format` and `archive_layout` comments in `data/hscla_db.yaml`, and added live + offline tests. The image median at Perseus HSC-I differs between the two flavors by milli-ADU, consistent with the bg-correction difference.
+- Rule: probe with every option you intend to support. The wire format's `type` value reappears in the response filename, transformed — so two flavors of the same service can produce filenames that don't match a single regex.
+
 ## 2026-05-13 — Batch cutout TAR uses 1-indexed coordlist line number as filename prefix
 - Context: Phase 8 needed to map members of the multi-row cutout TAR back to input rows.
 - Surprise: the server names each FITS as `<N>-cutout-<band>-<tract>-<release>.fits` where **N is the 1-indexed line number in the request's coordlist file (the `#?` header is line 1)**. Live-probed with two requests:
