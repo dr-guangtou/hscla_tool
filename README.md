@@ -167,6 +167,43 @@ cached under `${HSCLA_TOOL_CACHE}/cutouts/` by a SHA-256 hash of the
 request, so a re-run of the same script reads the local file instead
 of refetching.
 
+### Bulk cutouts (one POST, up to 990 rows)
+
+For many cutouts at once, use `fetch_cutouts`. The underlying
+multipart form accepts up to 990 rows per request; we send one POST
+for every cache-miss row in the input, partitioning around already-
+cached rows so re-runs do less work each time.
+
+```python
+import pandas as pd
+from hscla_tool import cutout
+
+requests = pd.DataFrame({
+    "ra":          [49.27, 49.28, 198.0],  # last row is uncovered
+    "dec":         [41.25, 41.25, 29.5],
+    "size_arcsec": [108.0, 108.0, 108.0],
+    "band":        ["HSC-I", "HSC-R", "HSC-I"],
+})
+# A list of cutout.CutoutRequest works too.
+
+result = cutout.fetch_cutouts(requests)
+result.cutouts   # tuple[Cutout | None, ...] parallel to input rows
+result.failures  # ((2, NoCoverageError(...)),)
+print(f"{result.n_success}/{len(result)} succeeded, "
+      f"{result.n_failure} with no coverage")
+
+for c in result.cutouts:
+    if c is None:
+        continue
+    image = c.image.data
+    ...
+result.close()
+```
+
+`fetch_cutouts` raises `CutoutError` for whole-batch failures
+(HTTP error, oversized batch, invalid request fields). Per-row
+"no coverage" lands in `result.failures`, not as an exception.
+
 ### PSF kernel
 
 ```python
@@ -268,6 +305,9 @@ hscla frames   49.2658 41.2486 --size-deg 0.03 --detailed
 # Cutouts and PSFs (saved under ./outputs/cutouts/ and ./outputs/psfs/)
 hscla cutout 49.2658 41.2486 --size-arcsec 108 --band HSC-I
 hscla psf    49.2658 41.2486 --band HSC-I
+
+# Bulk cutouts from a CSV/Parquet of (ra, dec, size_arcsec, band) rows
+hscla cutouts inputs.csv                       # one POST for the whole batch
 
 # SQL
 hscla sql "SELECT COUNT(*) FROM la2020.mosaic" --preview

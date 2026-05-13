@@ -13,6 +13,14 @@ Format:
 - Rule: the one-line takeaway, if any (also persist to CLAUDE.md if it's a hard rule).
 ```
 
+## 2026-05-13 — Batch cutout TAR uses 1-indexed coordlist line number as filename prefix
+- Context: Phase 8 needed to map members of the multi-row cutout TAR back to input rows.
+- Surprise: the server names each FITS as `<N>-cutout-<band>-<tract>-<release>.fits` where **N is the 1-indexed line number in the request's coordlist file (the `#?` header is line 1)**. Live-probed with two requests:
+  - First probe (3 rows, order: covered, covered, uncovered) → TAR members `2-cutout-HSC-I-...` and `3-cutout-HSC-R-...`. The uncovered row was simply omitted from the TAR.
+  - Second probe (5 rows interleaved as blank, covered, blank, covered, blank) → only `3-cutout-HSC-I-...` and `5-cutout-HSC-R-...` in the TAR. Confirms the prefix is the source line number, not a sequential index over covered rows.
+- Resolution: `fetch_cutouts` parses the integer prefix of each TAR member basename, subtracts 2 to get the 0-indexed input row, and writes that `Cutout` (or `None` for missing prefixes) into the parallel `BatchResult.cutouts` list. Rows whose prefix is missing become `(idx, NoCoverageError)` entries in `BatchResult.failures`.
+- Rule: live-probe every HSCLA endpoint with a deliberately interleaved input. Many HSC services name their output bytes; "prefix increments by 1" and "prefix is the input line number" are observationally indistinguishable until the bad rows are scattered through the input.
+
 ## 2026-05-13 — Import-time credential check breaks `hscla --help` on cold installs
 - Context: Phase 7 added the `hscla` console script. Loading the entry point pulls in `hscla_tool/__init__.py`, which calls `load_credentials()` at import time.
 - Surprise: a fresh CI runner without `HSCLA_USR` / `HSCLA_PWD` set crashes before `hscla --help` can even show its usage. Same problem on a user's first install before they have set the env vars.

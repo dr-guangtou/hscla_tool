@@ -46,7 +46,7 @@ def test_parser_has_eight_subcommands() -> None:
         a for a in parser._actions if isinstance(a, type(parser._actions[-1])) and a.choices
     )
     assert set(sub_action.choices) == {
-        "coverage", "frames", "cutout", "psf", "sql",
+        "coverage", "frames", "cutout", "cutouts", "psf", "sql",
         "crossmatch", "mirror", "archive",
     }
 
@@ -196,6 +196,54 @@ def test_cutout_no_coverage_returns_exit_2(
     assert rc == cli.EXIT_NO_COVERAGE
     err = capsys.readouterr().err
     assert "no coverage" in err
+
+
+def test_cutouts_batch_writes_named_files_and_logs_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Build a 2-row CSV input and a fake BatchResult with one success + one
+    # no-coverage row to confirm the CLI prints the saved path on stdout
+    # and the failure row on stderr.
+    src = tmp_path / "inputs.csv"
+    pd.DataFrame({
+        "ra":          [49.27, 198.0],
+        "dec":         [41.25, 29.5],
+        "size_arcsec": [108.0, 108.0],
+        "band":        ["HSC-I", "HSC-I"],
+    }).to_csv(src, index=False)
+
+    good = _make_fake_cutout(tmp_path, band="HSC-I")
+    bad_exc = _cutout.NoCoverageError("HSCLA has no HSC-I coadd coverage at (198, 29)")
+    fake_result = _cutout.BatchResult(
+        cutouts=(good, None),
+        failures=((1, bad_exc),),
+    )
+    monkeypatch.setattr(_cutout, "fetch_cutouts", lambda *a, **kw: fake_result)
+
+    rc = cli.main(["cutouts", str(src)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # Stdout: one path per saved file. Only the covered row produces one.
+    stdout_lines = [ln for ln in captured.out.strip().splitlines() if ln]
+    assert len(stdout_lines) == 1
+    saved = Path(stdout_lines[0])
+    assert saved.is_file()
+    assert saved.parent == tmp_path / "cutouts"
+    assert "ra49.0000" in saved.name and "dec+41.0000" in saved.name
+    assert "HSC-I" in saved.name
+    # Stderr: friendly summary + per-row failure note.
+    assert "saved 1/2 cutouts" in captured.err
+    assert "row 1: HSCLA has no" in captured.err
+
+
+def test_cutouts_batch_missing_input_returns_bad_args(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = cli.main(["cutouts", "/nonexistent.csv"])
+    assert rc == cli.EXIT_BAD_ARGS
+    assert "not found" in capsys.readouterr().err
 
 
 def test_cutout_explicit_out_used(

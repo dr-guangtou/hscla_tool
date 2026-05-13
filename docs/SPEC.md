@@ -75,6 +75,10 @@ hscla_tool/
   cutout.py          # U3: FITS cutout (image+variance+mask) via the DAS
                      #     cutout CGI (basic auth, multipart-form coord list,
                      #     streaming TAR response, empty-TAR = no coverage).
+                     #     Single-row entry: fetch_cutout(...).
+                     #     Bulk entry: fetch_cutouts(requests) returns a
+                     #     BatchResult mapping the TAR back to input rows via
+                     #     the server's 1-indexed coordlist line prefix.
   mask.py            # U4: maskbit-plane decoding from MP_* header cards,
                      #     with a vendored fallback bit map.
   psf.py             # U5: PSF kernels via the PSF picker (/psf/.../cgi/getpsf,
@@ -199,6 +203,66 @@ ra, dec = 198.1261598, 29.5614297
 2. cutout.fetch_cutout(...) -> raises NoCoverageError (a typed, expected
    error, easy to catch in user code)
 ```
+
+### 6.3 Bulk cutouts (one POST, many regions)
+
+The DAS cutout multipart form accepts up to 990 rows per request. The
+single-row `fetch_cutout` is built on top of the same wire format with a
+1-row coordlist; `fetch_cutouts` exposes the full multi-row path:
+
+```
+import pandas as pd
+from hscla_tool import cutout
+
+# Either shape is accepted on the input side:
+requests_df = pd.DataFrame({
+    "ra":           [49.27, 49.28, 198.13],   # row 2 is uncovered
+    "dec":          [41.25, 41.25, 29.56],
+    "size_arcsec":  [108.0, 108.0, 108.0],
+    "band":         ["HSC-I", "HSC-R", "HSC-I"],
+})
+# Equivalent:
+# requests_list = [cutout.CutoutRequest(ra=49.27, dec=41.25,
+#                                       size_arcsec=108.0, band="HSC-I"),
+#                  ...]
+
+result = cutout.fetch_cutouts(requests_df)
+result.cutouts   # list[Cutout | None], parallel to input rows
+result.failures  # [(2, NoCoverageError(...))]
+```
+
+Wire-level facts the implementation relies on, confirmed by live probe
+2026-05-13 (see `docs/lessons.md`):
+
+- Each TAR member is named `<N>-cutout-<band>-<tract>-<release>.fits`
+  where **N is the 1-indexed line number in the request's coordlist
+  file** (the `#?` header line counts as line 1). Input row 0 →
+  prefix 2, row 1 → prefix 3, … row N → prefix N+2.
+- Uncovered rows are simply absent from the TAR (no zero-byte
+  placeholder, no sentinel filename).
+- The TAR has no `arch-*` parent directory contract we depend on, but
+  the basename always carries the integer prefix; we parse from the
+  basename so any directory wrapper is ignored.
+
+Behavior:
+
+- Caching: each row's cache key is the same SHA-256 hash that the
+  single-row path uses, so re-requesting the same (band, ra, dec,
+  size, kind, tract, with_mask, with_variance, rerun) tuple is a
+  free local read. The dispatcher partitions inputs into
+  cache-hits and cache-misses, sends one POST for the misses, and
+  assembles a parallel `BatchResult` over the original input order.
+- All-cached input takes zero HTTP requests.
+- All-uncovered input still issues the POST (we don't know coverage
+  upfront), and every input row lands in `result.failures` as
+  `(idx, NoCoverageError)`.
+- An HTTP error from the server is a whole-batch failure: the call
+  raises `CutoutError`, not a per-row `failures` entry. Per-row
+  failures are reserved for things the server told us in-band
+  (currently only "no coverage" via a missing TAR member).
+- Inputs are validated before any HTTP: required fields present,
+  `ra ∈ [0, 360]`, `dec ∈ [-90, 90]`, `size_arcsec > 0`,
+  `band`/`kind` non-empty strings, batch size ≤ 990.
 
 ## 7. Dependencies (intended minimum)
 

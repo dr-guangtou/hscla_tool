@@ -193,10 +193,82 @@ Outstanding follow-ups, none blocking v1.0:
 
 - Local-mirror crossmatch against a future Parquet mirror of
   `la2020.forced` (the server-side path is shipped as a placeholder
-  because it takes 30–45 minutes).
+  because it takes 30–45 minutes). *Formally deferred 2026-05-13.*
 - `ruff format` opt-in across the legacy modules (22-file diff).
-- Bulk `fetch_cutouts(list[...])` API on top of the existing
-  single-region wire format.
+
+---
+
+## Phase 8 — Batch cutouts *(done)*
+
+- [x] Live-probed the multi-row DAS cutout endpoint with two scenarios
+  (3-row covered/covered/uncovered and 5-row interleaved). Confirmed
+  each TAR member is named `<N>-cutout-<band>-<tract>-<release>.fits`
+  where **N is the 1-indexed line number in the request's coordlist
+  file** (the `#?` header is line 1). Uncovered rows are omitted from
+  the TAR with no placeholder.
+- [x] `docs/SPEC.md` §6.3 added with the batch design (input shapes,
+  result shape, cache-hit partitioning, all-batch vs per-row failure
+  policy).
+- [x] `hscla_tool/cutout.py` extended with `CutoutRequest` (frozen
+  dataclass, fields parallel to `fetch_cutout` kwargs), `BatchResult`
+  (`.cutouts: tuple[Cutout | None, ...]` parallel to input;
+  `.failures: tuple[(idx, exc), ...]`), `MAX_BATCH_ROWS = 990`, and
+  `HscLaCutoutClient.fetch_cutouts(requests)` plus the module-level
+  shortcut. Accepts a `pandas.DataFrame` or a `list[CutoutRequest]`;
+  reuses the existing single-row content-hash cache so any mix of
+  cached and fresh rows costs at most one POST.
+- [x] `hscla cutouts <input>` CLI subcommand: reads a CSV/Parquet of
+  rows, calls `fetch_cutouts`, hardlinks each successful cutout into
+  `./outputs/cutouts/<friendly>.fits`, prints saved paths on stdout
+  and per-row failures on stderr.
+- [x] `tests/test_cutout.py`: 17 new offline tests covering TAR-prefix
+  mapping, DataFrame and list normalization, request validation,
+  multipart body shape, all-covered / mixed / all-uncovered cases,
+  cache short-circuits (all-cached and partial-cached), oversized
+  batch rejection, and whole-batch HTTP error propagation. Plus one
+  live test (`test_live_fetch_cutouts_mixed_batch`) gated by
+  `HSCLA_LIVE_TESTS=1` that sends one covered + one uncovered + one
+  covered row in a single POST and asserts the BatchResult mapping.
+- [x] `tests/test_cli.py`: 2 new offline tests for the `cutouts`
+  subcommand. Full suite: **150 offline + 12 gated-live, all green.**
+- [x] README "Bulk cutouts" section and `hscla cutouts` line in the
+  CLI quick tour.
+
+**Acceptance.** A pandas DataFrame of (ra, dec, size_arcsec, band) rows
+flows through `cutout.fetch_cutouts(...)` and returns a `BatchResult`
+whose `.cutouts` list is parallel to the input rows with `None` in
+the no-coverage slots and a typed `NoCoverageError` per affected row
+in `.failures`. Confirmed live against the Perseus + uncovered
+fixtures.
+
+### Review (2026-05-13)
+- **The wire format made batch cutouts a small, focused module change.**
+  The upstream multipart form already takes N rows; the single-row
+  `fetch_cutout` just supplied N = 1 implicitly. Two short live probes
+  (under a minute of work) revealed the 1-indexed line-prefix mapping
+  rule; without that, we would have had to either fingerprint each
+  FITS by band + WCS (fragile if two rows share band + patch) or
+  serialize the batch into N individual POSTs (defeats the purpose).
+- **`BatchResult` over `list[Cutout | None]`** turned out to be the right
+  call: callers want to know *why* a row failed without parsing logs,
+  and the recommended option also kept the parallel-to-input contract
+  that makes downstream loops trivial.
+- **Accepting both DataFrame and `list[CutoutRequest]`** added a couple
+  dozen lines of normalization but pays for itself: ad-hoc scripts use
+  the list shape, science workflows that already have a DataFrame from
+  a SQL query or a CSV use the DataFrame shape, and both go through
+  the same validation and cache-key path.
+- The CLI subcommand fell out naturally — same auto-naming as the
+  single-row `hscla cutout` (driven off the returned `Cutout.ra/dec/band`,
+  not the request), with stdout = saved paths and stderr = failures
+  so shell pipelines stay clean.
+- One subtlety worth flagging: `BatchResult` holds N open
+  `fits.HDUList` handles (one per success). For 990-row batches with
+  default ulimits that is fine on macOS / Linux, but a future user
+  hitting batch sizes in the hundreds while also opening other FITS
+  files in the same process could exhaust the limit. We document
+  `result.close()` and `iter(result)` for the typical loop pattern;
+  if this turns out to bite anyone we can swap to lazy opens.
 
 ---
 

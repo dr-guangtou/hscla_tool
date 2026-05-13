@@ -249,6 +249,62 @@ def _cmd_cutout(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# cutouts (batch)
+# --------------------------------------------------------------------------- #
+
+
+def _cmd_cutouts(args: argparse.Namespace) -> int:
+    import pandas as pd
+
+    quiet = args.quiet
+    src = Path(args.input).expanduser()
+    if not src.is_file():
+        print(f"hscla cutouts: input not found: {src}", file=sys.stderr)
+        return EXIT_BAD_ARGS
+    if src.suffix.lower() in (".parquet", ".pq"):
+        df = pd.read_parquet(src)
+    else:
+        df = pd.read_csv(src)
+
+    out_dir = Path(args.out_dir).expanduser() if args.out_dir else _outputs_subdir("cutouts")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _progress(quiet, f"fetching {len(df):,} cutouts in one batch")
+    try:
+        result = _cutout.fetch_cutouts(df)
+    except _cutout.CutoutError as exc:
+        print(f"hscla cutouts: {exc}", file=sys.stderr)
+        return EXIT_FETCH_FAILURE
+
+    saved: list[Path] = []
+    try:
+        for c in result.cutouts:
+            if c is None:
+                continue
+            name = (
+                f"cutout_{_fmt_radec(c.ra, c.dec)}"
+                f"_{_sanitize_band(c.band)}"
+                f"_{c.size_arcsec:g}as_{c.kind}.fits"
+            )
+            dest = out_dir / name
+            _link_or_copy(c.fits_path, dest)
+            saved.append(dest)
+    finally:
+        result.close()
+
+    _progress(
+        quiet,
+        f"saved {result.n_success}/{len(result)} cutouts to {out_dir} "
+        f"({result.n_failure} with no coverage)",
+    )
+    for idx, exc in result.failures:
+        _progress(quiet, f"  row {idx}: {exc}")
+    for path in saved:
+        print(path)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
 # psf
 # --------------------------------------------------------------------------- #
 
@@ -513,6 +569,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p_co.add_argument("--out", default=None,
                       help="Destination path (default: ./outputs/cutouts/<auto>.fits).")
     p_co.set_defaults(func=_cmd_cutout)
+
+    # cutouts (batch) -------------------------------------------------- #
+    p_cob = subs.add_parser(
+        "cutouts",
+        help="Bulk: download many cutouts from a CSV/Parquet of (ra,dec,...) rows.",
+    )
+    p_cob.add_argument("input", help="Input table (.csv or .parquet) with columns "
+                                     "ra, dec, size_arcsec, band (plus optional kind, "
+                                     "tract, with_mask, with_variance).")
+    p_cob.add_argument("--out-dir", default=None,
+                       help="Directory for saved files (default: ./outputs/cutouts/).")
+    p_cob.set_defaults(func=_cmd_cutouts)
 
     # psf -------------------------------------------------------------- #
     p_ps = subs.add_parser(
