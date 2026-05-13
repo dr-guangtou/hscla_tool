@@ -179,6 +179,120 @@ wrong choice for that science.
   `MP_INEXACT_PSF`). The `hscla_tool.mask.parse_mask_planes` /
   `decode` helpers work against these too.
 
+### `det_bkgd-...fits` carries the sky-bg model (essentially the DAS bg correction with opposite sign)
+
+Live-probed on 2026-05-13 at the Perseus LSBG fixture in HSC-I
+(patches 1,6 and 2,6 of tract 15548).
+
+**File structure: a serialized `lsst.afw.math.BackgroundList` with two background objects:**
+
+- **Block A (HDUs 0, 1, 2)** — the binned background, persisted as an
+  (image, mask, variance) triple:
+  - HDU[0] `PrimaryHDU`, 33×33 `float32` — bg values, in ADU. Bin
+    centers tile the patch on a regular grid of `BKGD_WIDTH / 33 ≈ 127`
+    pixels each.
+  - HDU[1] `ImageHDU`, 33×33 `int32` — per-cell mask (HSC `MP_*`
+    convention; the same plane dictionary as a coadd cutout's mask
+    HDU). In our sample, **every cell is `0`** even though some
+    individual cells are visibly contaminated by bright sources —
+    users should re-mask before science use.
+  - HDU[2] `ImageHDU`, 33×33 `float32` — per-cell variance / weight.
+- **Block B (HDUs 3, 4, 5)** — a 1×1 "approximation" fallback: a
+  single per-patch scalar (image, mask, variance). For patch 1,6 the
+  scalar is `−3.7732×10⁻³ ADU`; for patch 2,6 it is `−4.7160×10⁻³`.
+  This is the value an evaluator returns when the binned model can't
+  be used. `INTERPSTYLE=1` (`CONSTANT`) and `APPROXORDERX = APPROXORDERY = 0`.
+
+Header keywords that matter:
+
+| Key                | Meaning                                                                       |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `BKGD_X0`, `BKGD_Y0` | Bbox origin in **tract** pixels (e.g. `(3900, 23900)` for patch 1,6).         |
+| `BKGD_WIDTH`, `BKGD_HEIGHT` | Bbox size in pixels (`4200 × 4200` — covers the whole patch).               |
+| `INTERPSTYLE`       | LSST `Interpolate` enum. `5` = `AKIMA_SPLINE` (block A); `1` = `CONSTANT` (block B). |
+| `UNDERSAMPLESTYLE`  | LSST `BackgroundControl::UndersampleStyle`. Saved as `1`.                     |
+| `APPROXSTYLE`       | `-1` = no approximation; the binned-image branch is used.                     |
+| `APPROXORDERX`/`Y`  | Approx polynomial order, both `1` on block A and `0` on block B.              |
+| `APPROXWEIGHTING`   | `True` on block A, `False` on block B.                                        |
+| `CTYPE1A`/`CTYPE2A` | `LINEAR` — the WCS is in pixel space (no sky WCS for the bg map).              |
+
+**Reconstruction recipe.** To get the bg model evaluated at any
+patch-local pixel, place the 33×33 image on bin centers at
+`((i + 0.5) · 4200 / 33, (j + 0.5) · 4200 / 33)` (with `i, j ∈ 0..32`)
+and interpolate with cubic / AKIMA splines. The `BKGD_X0` / `BKGD_Y0`
+shift you to tract-pixel coordinates if you need them.
+
+**Comparison to the DAS `coadd` / `coadd/bg` distinction.** At the
+Perseus fixture cutout (108″ box), the interpolated stitched
+`det_bkgd` and the DAS-implied bg model `coadd − coadd/bg` show the
+**same spatial structure**, with a Pearson `r = −0.991` per pixel:
+
+|  Quantity                              | median (ADU)  | std (ADU)  |
+| -------------------------------------- | ------------- | ---------- |
+| `coadd − coadd/bg`                     | `+4.63×10⁻³`  | `1.06×10⁻²` |
+| `det_bkgd` (interpolated at cutout)    | `−4.64×10⁻⁴`  | `1.10×10⁻²` |
+| `(coadd − coadd/bg) − det_bkgd`        | `+5.14×10⁻³`  | `2.15×10⁻²` |
+
+![Perseus LSBG HSCLA2020 HSC-I — det_bkgd vs (coadd − coadd/bg)](figures/perseus_det_bkgd_comparison.png)
+
+Top row, left to right: the coadd cutout for reference; the
+DAS-implied bg correction `coadd − coadd/bg`; the file-tree
+`det_bkgd` interpolated and stitched onto the cutout grid. The
+middle and right panels carry the **same large-scale gradient**
+with colors flipped. Bottom row, left to right: the raw 33×33
+binned bg images for patches 1,6 and 2,6 (a few cells are blown out
+by bright-source contamination — note the bright red pixels — but
+the underlying smooth structure is present); and the per-pixel
+scatter, which lines up on a slope ≈ −1 with Pearson `r = −0.991`.
+
+So `det_bkgd` is **not** a different background concept from the
+DAS `coadd/bg` correction — it is the **same physical sky-bg model**,
+just with the opposite sign convention. The `coadd/bg` flavor was
+produced by *subtracting* the focal-plane bg from each visit
+before coadding; `det_bkgd` is the bg the detection step *would
+subtract* from the (uncorrected) `coadd` to flatten it for source
+detection. Same model, opposite role.
+
+**Practical recipe.** From the file archive alone (no DAS service):
+
+```python
+import numpy as np
+from astropy.io import fits
+from scipy.interpolate import RectBivariateSpline
+
+with fits.open("calexp-HSC-I-<T>-<P>.fits") as cx:
+    coadd_image = np.asarray(cx[1].data, dtype=float)  # the coadd flavor
+
+with fits.open("det_bkgd-HSC-I-<T>-<P>.fits") as bg:
+    bg33 = np.asarray(bg[0].data, dtype=float)         # 33x33 binned
+
+# Build the bin-center grid and bicubic-interpolate to full patch size.
+N = 33
+patch = 4200
+xs = (np.arange(N) + 0.5) * patch / N
+spl = RectBivariateSpline(xs, xs, bg33, kx=3, ky=3, s=0)
+yy, xx = np.mgrid[0:patch, 0:patch].astype(float)
+bg_full = spl.ev(yy.ravel(), xx.ravel()).reshape(patch, patch)
+
+coadd_bg = coadd_image + bg_full   # ≈ what 'coadd/bg' would give you
+```
+
+Caveats:
+
+- A small constant offset (~5×10⁻³ ADU at Perseus) remains between
+  `(coadd + det_bkgd)` and `coadd/bg`. Probably from how the
+  detection-step bg estimator integrates over the patch vs how the
+  focal-plane bg correction integrates over the focal plane. For
+  LSB photometry that's already deep into the noise floor.
+- Bright-source-contaminated cells in the 33×33 model (max 3.4 ADU
+  here for patch 1,6, 7.4 ADU for patch 2,6) are *not* masked in
+  HDU[1] of the shipped file. Re-mask using your favorite bright-star
+  catalog or threshold before science use.
+- This was verified at one fixture (Perseus, HSC-I). The relationship
+  *should* hold elsewhere because both bg estimators model the same
+  underlying focal-plane sky structure, but it has not been confirmed
+  patch-by-patch.
+
 ---
 
 ## `deepCoadd-results/merged/<tract>/<patch>/` — cross-band products
