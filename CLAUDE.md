@@ -16,12 +16,15 @@ duplicate.
 Always read these before writing or proposing code:
 
 1. `docs/SPEC.md` — architecture, modules, conventions, fixtures.
-2. `data/hscla_db.yaml` — machine-readable catalog of HSCLA URLs,
+2. `docs/USAGE.md` — task-oriented recipes ("how do I X?") for the
+   library and CLI. Start here when a user request maps to an
+   existing feature; only invent new code paths when no recipe fits.
+3. `data/hscla_db.yaml` — machine-readable catalog of HSCLA URLs,
    tables, server-side WHERE functions, and the two regression
    coordinates. **This is the structured projection of `README.md`.
    Update both together.**
-3. `docs/todo.md` — the phased plan and current status.
-4. `docs/lessons.md` — accumulated mistakes and rationale.
+4. `docs/todo.md` — the phased plan and current status.
+5. `docs/lessons.md` — accumulated mistakes and rationale.
 
 ## Reference repos (external, do not modify)
 

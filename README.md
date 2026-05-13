@@ -13,7 +13,9 @@ Archive (HSCLA)** — currently targeting HSCLA2020, which is reduced with
 2. Provides a small Python API (and, soon, CLI) so you can query the
    archive without re-reading the upstream HTTP docs every time.
 
-The architecture lives in [`docs/SPEC.md`](docs/SPEC.md); the plan and
+Task-oriented recipes are in [`docs/USAGE.md`](docs/USAGE.md) — go
+there when you have a specific "how do I X?" question. The
+architecture lives in [`docs/SPEC.md`](docs/SPEC.md); the plan and
 phase-by-phase status in [`docs/todo.md`](docs/todo.md); accumulated
 gotchas in [`docs/lessons.md`](docs/lessons.md).
 
