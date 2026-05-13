@@ -224,3 +224,4 @@ outputs/
 # Per-session development journals — kept locally, not shared.
 docs/journal/
 
+.firecrawl/

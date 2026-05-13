@@ -253,96 +253,213 @@ before coadding; `det_bkgd` is the bg the detection step *would
 subtract* from the (uncorrected) `coadd` to flatten it for source
 detection. Same model, opposite role.
 
-**Practical recipe.** From the file archive alone (no DAS service):
+### Algorithm: faithful LSST reproduction
+
+The `det_bkgd` interpolation is **not** a 2-D bicubic spline on a
+uniform grid. Reading
+[`lsst/afw/src/math/Background.cc`](https://github.com/lsst/afw/blob/main/src/math/Background.cc)
+and
+[`BackgroundMI.cc`](https://github.com/lsst/afw/blob/main/src/math/BackgroundMI.cc),
+the production algorithm has three properties we have to honour to
+reproduce the bg pixel values:
+
+1. **Cell centers are placed via integer arithmetic, not a uniform
+   grid.** From `Background::_setCenOrigSize`:
+
+   ```cpp
+   for (int iX = 0; iX < nxSample; ++iX) {
+       const int endx = std::min(((iX + 1) * width + nxSample / 2) / nxSample, width);
+       _xorig[iX] = (iX == 0) ? 0 : _xorig[iX - 1] + _xsize[iX - 1];
+       _xsize[iX] = endx - _xorig[iX];
+       _xcen[iX]  = _xorig[iX] + 0.5 * _xsize[iX] - 0.5;
+   }
+   ```
+
+   For our case (`width = 4200`, `nxSample = 33`) the cell widths
+   alternate **127 / 128 px**, and centers fall at `63, 190.5, 318,
+   445.5, 573, 700.5, …` — not at the uniform `(i + 0.5) ·
+   4200 / 33 = 63.636, 190.909, …` we used in the first pass. Up to
+   a half-HSC-pixel offset.
+
+2. **Separable 1-D AKIMA spline (y first, then x), not a 2-D spline.**
+   From `BackgroundMI::doGetImage`:
+
+   - *Stage 1.* For each of the 33 x-bin columns, build an
+     `Interpolate` object of type `AKIMA_SPLINE` over the column's
+     `(y_centers, cell_values)` pairs, evaluate at every output
+     y-pixel. This yields 33 fully y-interpolated columns
+     (`_setGridColumns`, BackgroundMI.cc:111-167).
+   - *Stage 2.* For each output y-pixel, take the 33 column-values
+     across x, build another `AKIMA_SPLINE` `Interpolate` over
+     `(x_centers, row_values)`, evaluate at every output x-pixel
+     (BackgroundMI.cc:290-348).
+
+   AKIMA splines are no-overshoot at extrema; this is why the algorithm
+   tolerates the bright-source-contaminated cells gracefully without
+   producing ringing rings around them.
+
+3. **`cullNan` before each 1-D spline.** Any cell whose IMAGE value is
+   NaN gets dropped from the spline knots (BackgroundMI.cc:126-127,
+   307). The persisted mask HDU is **not** consulted on reload — only
+   the image-plane NaN status matters. Our shipped det_bkgd files have
+   the mask HDU all-zeroed (the pipeline persists a clean mask), so on
+   reload nothing is dropped; the bright-contaminated cell values
+   participate in the spline as ordinary knots. The DAS service's
+   `coadd/bg` flavor was computed using exactly this — so to reproduce
+   it we must **not** clip those cells.
+
+In Python (using `scipy.interpolate.Akima1DInterpolator`, which calls
+the same Akima-style algorithm GSL exposes via `gsl_interp_akima`):
 
 ```python
 import numpy as np
 from astropy.io import fits
-from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import Akima1DInterpolator
 
-with fits.open("calexp-<F>-<T>-<P>.fits") as cx:
-    coadd_image = np.asarray(cx[1].data, dtype=float)   # the coadd flavor
 
-with fits.open("det_bkgd-<F>-<T>-<P>.fits") as bg:
-    bg33 = np.asarray(bg[0].data, dtype=float)          # 33x33 binned
+def lsst_cell_centers(width: int, n_sample: int) -> np.ndarray:
+    """Reproduce `Background::_setCenOrigSize` integer-arithmetic centers."""
+    centers = np.empty(n_sample, dtype=float)
+    xorig_prev = xsize_prev = 0
+    for i in range(n_sample):
+        endx = min(((i + 1) * width + n_sample // 2) // n_sample, width)
+        xorig = 0 if i == 0 else xorig_prev + xsize_prev
+        xsize = endx - xorig
+        centers[i] = xorig + 0.5 * xsize - 0.5
+        xorig_prev, xsize_prev = xorig, xsize
+    return centers
 
-# ---- Step 1: sigma-clip bright-source-contaminated cells ----
-# The shipped det_bkgd mask HDU is all-zeros; the pipeline does NOT flag
-# cells that were contaminated by bright stars. Without this step, the
-# recipe over-corrects near bright objects (see the QA figure below).
-med = float(np.median(bg33))
-mad = float(np.median(np.abs(bg33 - med)))
-sigma = max(mad * 1.4826, 1e-6)
-hi, lo = med + 5 * sigma, med - 5 * sigma
-bg33_clean = bg33.copy()
-bg33_clean[(bg33 > hi) | (bg33 < lo)] = np.nan
-# Fill the NaNs by Gaussian-smoothed nearest-neighbour interpolation.
-kernel = Gaussian2DKernel(x_stddev=1.0)
-for _ in range(5):                     # a few passes cover clustered outliers
-    bg33_clean = interpolate_replace_nans(bg33_clean, kernel)
-    if np.isfinite(bg33_clean).all():
-        break
 
-# ---- Step 2: bicubic-spline interpolate to full patch resolution ----
-N = 33
-patch = 4200
-xs = (np.arange(N) + 0.5) * patch / N
-spl = RectBivariateSpline(xs, xs, bg33_clean, kx=3, ky=3, s=0)
-yy, xx = np.mgrid[0:patch, 0:patch].astype(float)
-bg_full = spl.ev(yy.ravel(), xx.ravel()).reshape(patch, patch)
-
-# ---- Step 3: reconstruct the bg-corrected coadd ----
-coadd_bg = coadd_image + bg_full       # ≈ what 'coadd/bg' would give you
+def lsst_bg_image(bg33: np.ndarray, patch_w: int, patch_h: int,
+                  out_x: np.ndarray, out_y: np.ndarray) -> np.ndarray:
+    """Faithful BackgroundMI.doGetImage() over `out_x` × `out_y` patch pixels."""
+    n_y, n_x = bg33.shape
+    x_c = lsst_cell_centers(patch_w, n_x)
+    y_c = lsst_cell_centers(patch_h, n_y)
+    grid = np.full((out_y.size, n_x), np.nan)
+    for iX in range(n_x):
+        col = bg33[:, iX]
+        good = ~np.isnan(col)
+        if good.sum() >= 5:
+            grid[:, iX] = Akima1DInterpolator(y_c[good], col[good])(
+                out_y, extrapolate=True)
+    out = np.full((out_y.size, out_x.size), np.nan)
+    for iy in range(out_y.size):
+        row = grid[iy, :]
+        good = ~np.isnan(row)
+        if good.sum() >= 5:
+            out[iy, :] = Akima1DInterpolator(x_c[good], row[good])(
+                out_x, extrapolate=True)
+    return out
 ```
 
-The sigma-clip step matters: in our multi-band check at the patch
-center, **skipping it makes the reconstruction *worse* than no
-correction at all** for HSC-R and HSC-I (the over-correction near
-contaminated cells dominates). With the clip, the recipe holds across
-all three broadband filters tested.
+### Reconstruction recipe
 
-**Multi-band verification** (2026-05-13). At the geometric center of
-patch (15548, 1,6) with a 60″ cutout, we ran the recipe for HSC-G,
-HSC-R, HSC-I both **raw** (no clip) and **clean** (5σ clip + Gaussian
-NaN-fill). The metric is Pearson `r` between `det_bkgd_interp` and
-the DAS-implied bg correction `coadd − coadd/bg`:
+From the file archive alone (no DAS service), reproduce the
+`coadd/bg` flavor pixel-by-pixel:
 
-| Band   | r (raw) | r (clean) | residual std (raw) | residual std (clean) | outliers clipped |
-| ------ | ------- | --------- | ------------------ | -------------------- | ---------------- |
-| HSC-G  | −0.690  | **−0.955** | 3.4×10⁻³            | **1.2×10⁻³**          | 48 / 1089        |
-| HSC-R  | −0.579  | **−0.938** | 7.6×10⁻³            | **2.2×10⁻³**          | 49 / 1089        |
-| HSC-I  | −0.418  | **−0.924** | 1.05×10⁻²           | **2.8×10⁻³**          | 57 / 1089        |
+```python
+with fits.open("calexp-<F>-<T>-<P>.fits") as cx:
+    coadd = np.asarray(cx[1].data, dtype=float)            # the coadd flavor
+    cx_wcs = WCS(cx[1].header)                              # for the pixel grid
 
-![Multi-band coadd/bg reconstruction recipe — HSCLA2020 patch (15548,1,6)](figures/det_bkgd_multiband_qa.png)
+with fits.open("det_bkgd-<F>-<T>-<P>.fits") as bg:
+    bg33 = np.asarray(bg[0].data, dtype=float)             # 33x33 binned
 
-Rows G/R/I. Columns left→right: coadd, coadd/bg (truth), `recon_raw`,
-`recon_raw − truth`, `recon_clean`, `recon_clean − truth`. The
-residual panels share a symmetric ±0.018 ADU scale. The raw residuals
-(column 4) show a clear horizontal red band where contaminated bg-bin
-cells over-corrected; the cleaned residuals (column 6) are visibly
-flat. The Perseus single-patch fixture in HSC-I happens to land far
-from the contaminated cells, which is why the earlier comparison
-showed r = −0.99 without needing the clip — that result was lucky.
+# Evaluate on the calexp's own pixel grid: out_x = arange(patch_w),
+# out_y = arange(patch_h). For a sub-image, pass the sub-image's
+# patch-pixel coords (computed via WCS) instead.
+det_full = lsst_bg_image(bg33, patch_w=4200, patch_h=4200,
+                         out_x=np.arange(4200, dtype=float),
+                         out_y=np.arange(4200, dtype=float))
 
-Caveats (still apply with the clip):
+coadd_bg = coadd + det_full           # ≈ what `coadd/bg` would give you
+```
 
-- A small constant offset (~1–4×10⁻³ ADU) remains between
-  `(coadd + det_bkgd)` and `coadd/bg`. Probably from how the
-  detection-step bg estimator integrates over the patch vs how the
-  focal-plane bg correction integrates over the focal plane.
-- The 5σ MAD threshold rejects ~5% of bins as bright-source-
-  contaminated. Tighter or looser thresholds will shift the
-  trade-off between leaving in real bg signal vs leaving in
-  contamination.
-- Verified at one (tract, patch) and three bands at the patch center.
-  Different positions / patches / bands may need fine-tuning of the
-  clipping threshold; the smooth bg gradient becomes harder to
-  recover when it's small compared to the cell noise.
-- Patch boundaries are not handled by this recipe. If your science
-  region straddles two patches, you need to interpolate each patch's
-  det_bkgd independently and stitch — see the prior section on the
-  Perseus calexp comparison for how to map across patches.
+**Do not sigma-clip the bg33** before interpolation. The DAS service's
+`coadd/bg` was computed using the un-clipped bg model. Clipping
+removes signal the recipe needs.
+
+### Multi-band verification
+
+At the geometric center of patch (15548, 1,6) in HSC-G / HSC-R / HSC-I
+with a 60″ cutout, comparing four recipes against the DAS
+`coadd/bg` truth:
+
+| Band  | recipe                                          | Pearson r    | residual std (ADU) |
+| ----- | ----------------------------------------------- | ------------ | ------------------ |
+| HSC-G | scipy bicubic on raw bg33                       | −0.690       | 3.4×10⁻³           |
+| HSC-G | scipy bicubic on 5σ-clipped + Gaussian-filled bg33 | −0.955    | 1.2×10⁻³           |
+| HSC-G | **LSST `Background::getImage` on raw bg33**      | **−1.0000**  | **1.0×10⁻⁷**       |
+| HSC-G | LSST `getImage` with bright cells set to NaN     | −0.966       | 9.3×10⁻⁴           |
+| HSC-R | scipy bicubic on raw bg33                       | −0.579       | 7.6×10⁻³           |
+| HSC-R | scipy bicubic on cleaned bg33                   | −0.938       | 2.2×10⁻³           |
+| HSC-R | **LSST `getImage` on raw bg33**                  | **−1.0000**  | **4.6×10⁻⁷**       |
+| HSC-R | LSST `getImage` with bright cells NaN'd          | −0.954       | 1.7×10⁻³           |
+| HSC-I | scipy bicubic on raw bg33                       | −0.418       | 1.05×10⁻²          |
+| HSC-I | scipy bicubic on cleaned bg33                   | −0.924       | 2.8×10⁻³           |
+| HSC-I | **LSST `getImage` on raw bg33**                  | **−1.0000**  | **3.3×10⁻⁷**       |
+| HSC-I | LSST `getImage` with bright cells NaN'd          | −0.928       | 2.5×10⁻³           |
+
+The faithful LSST algorithm gives **Pearson r = −1.0000 to four
+decimal places** across all three bands and residual std at
+**float-32 precision** (~10⁻⁷ ADU). This is essentially bit-exact
+reconstruction: the DAS `coadd/bg` flavor really is
+`coadd + getImage(det_bkgd) − band_const`. The remaining residual is
+a single per-band **constant offset** (≈ +9.9×10⁻⁴, +3.2×10⁻³,
++3.8×10⁻³ ADU for G / R / I) — a per-patch / per-band normalisation
+constant outside the bg-interpolation algorithm.
+
+![det_bkgd interpolation: bicubic vs LSST-faithful, HSCLA2020 (15548,1,6)](figures/det_bkgd_lsst_recipe_qa.png)
+
+Columns left→right: coadd, coadd/bg (truth), residual under
+`bicubic_clip`, residual under **`lsst_raw`**, residual under
+`lsst_clip`. Rows G / R / I. The `lsst_raw` column is **uniform
+pastel colour** at each band — only the per-band constant offset
+remains. The `bicubic_clip` and `lsst_clip` columns still show
+~milli-ADU residual bowls.
+
+### What we got wrong on the first pass (and why)
+
+The earlier write-up of this section recommended a `scipy bicubic
+spline + 5σ MAD clip + Gaussian NaN-fill` recipe and claimed it was
+needed because the raw bg33 contains bright-source-contaminated bins.
+That recipe gets `r ≈ −0.94` across G / R / I, which looked impressive
+but is far from the truth (`r = −1.0` exactly). The faithful LSST
+algorithm above achieves bit-identical reconstruction without
+clipping. Two mistakes in the first pass:
+
+- **Wrong interpolator.** 2-D bicubic spline is not what the LSST
+  stack uses. Separable 1-D AKIMA is no-overshoot at extrema and
+  tolerates the contaminated cells gracefully; bicubic does not.
+- **Wrong cell centers.** Uniform `(i + 0.5) · W/N` differs from
+  the LSST integer-arithmetic placement by up to half a pixel and
+  alternates sign every cell, contributing structured residual.
+
+The earlier `det_bkgd_multiband_qa.png` figure (kept in the repo as
+historical record) shows the residual gradients that drove our
+mistaken "always sigma-clip" conclusion. The `det_bkgd_lsst_recipe_qa.png`
+above is the correct picture.
+
+### Caveats
+
+- **Per-band constant offset** (~1–4 milli-ADU) remains between
+  `(coadd + lsst_getImage(det_bkgd))` and `coadd/bg`. Probably
+  reflects a per-patch / per-band normalisation done outside the
+  bg-interpolation step. For LSB photometry this is already in the
+  noise.
+- **AKIMA needs ≥ 5 valid cells** per column / row. With cells set to
+  NaN you can drop below this; the LSST stack falls back via
+  `REDUCE_INTERP_ORDER` in that case. Our 33×33 grid is comfortably
+  above the minimum even with ~5% cells masked, but keep this in mind
+  if you implement aggressive masking on smaller bg grids.
+- **Verified at one (tract, patch) and three bands.** The relationship
+  should hold elsewhere — both bg estimators target the same physical
+  sky structure and the algorithm is a deterministic function of the
+  persisted file — but it has not been swept patch-by-patch.
+- **Multi-patch stitching is still up to you.** If your science region
+  spans two patches, run `lsst_bg_image` on each patch's det_bkgd and
+  stitch via the WCS, just like the earlier Perseus example.
 
 ---
 
