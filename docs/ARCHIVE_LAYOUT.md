@@ -258,40 +258,91 @@ detection. Same model, opposite role.
 ```python
 import numpy as np
 from astropy.io import fits
+from astropy.convolution import Gaussian2DKernel, interpolate_replace_nans
 from scipy.interpolate import RectBivariateSpline
 
-with fits.open("calexp-HSC-I-<T>-<P>.fits") as cx:
-    coadd_image = np.asarray(cx[1].data, dtype=float)  # the coadd flavor
+with fits.open("calexp-<F>-<T>-<P>.fits") as cx:
+    coadd_image = np.asarray(cx[1].data, dtype=float)   # the coadd flavor
 
-with fits.open("det_bkgd-HSC-I-<T>-<P>.fits") as bg:
-    bg33 = np.asarray(bg[0].data, dtype=float)         # 33x33 binned
+with fits.open("det_bkgd-<F>-<T>-<P>.fits") as bg:
+    bg33 = np.asarray(bg[0].data, dtype=float)          # 33x33 binned
 
-# Build the bin-center grid and bicubic-interpolate to full patch size.
+# ---- Step 1: sigma-clip bright-source-contaminated cells ----
+# The shipped det_bkgd mask HDU is all-zeros; the pipeline does NOT flag
+# cells that were contaminated by bright stars. Without this step, the
+# recipe over-corrects near bright objects (see the QA figure below).
+med = float(np.median(bg33))
+mad = float(np.median(np.abs(bg33 - med)))
+sigma = max(mad * 1.4826, 1e-6)
+hi, lo = med + 5 * sigma, med - 5 * sigma
+bg33_clean = bg33.copy()
+bg33_clean[(bg33 > hi) | (bg33 < lo)] = np.nan
+# Fill the NaNs by Gaussian-smoothed nearest-neighbour interpolation.
+kernel = Gaussian2DKernel(x_stddev=1.0)
+for _ in range(5):                     # a few passes cover clustered outliers
+    bg33_clean = interpolate_replace_nans(bg33_clean, kernel)
+    if np.isfinite(bg33_clean).all():
+        break
+
+# ---- Step 2: bicubic-spline interpolate to full patch resolution ----
 N = 33
 patch = 4200
 xs = (np.arange(N) + 0.5) * patch / N
-spl = RectBivariateSpline(xs, xs, bg33, kx=3, ky=3, s=0)
+spl = RectBivariateSpline(xs, xs, bg33_clean, kx=3, ky=3, s=0)
 yy, xx = np.mgrid[0:patch, 0:patch].astype(float)
 bg_full = spl.ev(yy.ravel(), xx.ravel()).reshape(patch, patch)
 
-coadd_bg = coadd_image + bg_full   # ≈ what 'coadd/bg' would give you
+# ---- Step 3: reconstruct the bg-corrected coadd ----
+coadd_bg = coadd_image + bg_full       # ≈ what 'coadd/bg' would give you
 ```
 
-Caveats:
+The sigma-clip step matters: in our multi-band check at the patch
+center, **skipping it makes the reconstruction *worse* than no
+correction at all** for HSC-R and HSC-I (the over-correction near
+contaminated cells dominates). With the clip, the recipe holds across
+all three broadband filters tested.
 
-- A small constant offset (~5×10⁻³ ADU at Perseus) remains between
+**Multi-band verification** (2026-05-13). At the geometric center of
+patch (15548, 1,6) with a 60″ cutout, we ran the recipe for HSC-G,
+HSC-R, HSC-I both **raw** (no clip) and **clean** (5σ clip + Gaussian
+NaN-fill). The metric is Pearson `r` between `det_bkgd_interp` and
+the DAS-implied bg correction `coadd − coadd/bg`:
+
+| Band   | r (raw) | r (clean) | residual std (raw) | residual std (clean) | outliers clipped |
+| ------ | ------- | --------- | ------------------ | -------------------- | ---------------- |
+| HSC-G  | −0.690  | **−0.955** | 3.4×10⁻³            | **1.2×10⁻³**          | 48 / 1089        |
+| HSC-R  | −0.579  | **−0.938** | 7.6×10⁻³            | **2.2×10⁻³**          | 49 / 1089        |
+| HSC-I  | −0.418  | **−0.924** | 1.05×10⁻²           | **2.8×10⁻³**          | 57 / 1089        |
+
+![Multi-band coadd/bg reconstruction recipe — HSCLA2020 patch (15548,1,6)](figures/det_bkgd_multiband_qa.png)
+
+Rows G/R/I. Columns left→right: coadd, coadd/bg (truth), `recon_raw`,
+`recon_raw − truth`, `recon_clean`, `recon_clean − truth`. The
+residual panels share a symmetric ±0.018 ADU scale. The raw residuals
+(column 4) show a clear horizontal red band where contaminated bg-bin
+cells over-corrected; the cleaned residuals (column 6) are visibly
+flat. The Perseus single-patch fixture in HSC-I happens to land far
+from the contaminated cells, which is why the earlier comparison
+showed r = −0.99 without needing the clip — that result was lucky.
+
+Caveats (still apply with the clip):
+
+- A small constant offset (~1–4×10⁻³ ADU) remains between
   `(coadd + det_bkgd)` and `coadd/bg`. Probably from how the
   detection-step bg estimator integrates over the patch vs how the
-  focal-plane bg correction integrates over the focal plane. For
-  LSB photometry that's already deep into the noise floor.
-- Bright-source-contaminated cells in the 33×33 model (max 3.4 ADU
-  here for patch 1,6, 7.4 ADU for patch 2,6) are *not* masked in
-  HDU[1] of the shipped file. Re-mask using your favorite bright-star
-  catalog or threshold before science use.
-- This was verified at one fixture (Perseus, HSC-I). The relationship
-  *should* hold elsewhere because both bg estimators model the same
-  underlying focal-plane sky structure, but it has not been confirmed
-  patch-by-patch.
+  focal-plane bg correction integrates over the focal plane.
+- The 5σ MAD threshold rejects ~5% of bins as bright-source-
+  contaminated. Tighter or looser thresholds will shift the
+  trade-off between leaving in real bg signal vs leaving in
+  contamination.
+- Verified at one (tract, patch) and three bands at the patch center.
+  Different positions / patches / bands may need fine-tuning of the
+  clipping threshold; the smooth bg gradient becomes harder to
+  recover when it's small compared to the cell noise.
+- Patch boundaries are not handled by this recipe. If your science
+  region straddles two patches, you need to interpolate each patch's
+  det_bkgd independently and stitch — see the prior section on the
+  Perseus calexp comparison for how to map across patches.
 
 ---
 
