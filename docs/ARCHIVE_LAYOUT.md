@@ -253,6 +253,16 @@ before coadding; `det_bkgd` is the bg the detection step *would
 subtract* from the (uncorrected) `coadd` to flatten it for source
 detection. Same model, opposite role.
 
+The relationship between the file-archive products and the DAS
+flavors turns out to be **bit-exact**, not approximate:
+
+> `coadd/bg  =  calexp  +  lsst_Background_getImage(det_bkgd)`
+
+where `lsst_Background_getImage` reproduces
+`lsst::afw::math::BackgroundList::getImage()` by summing the
+contributions of both `Background` elements in the persisted file
+(HDU 0 + HDU 3). See "Algorithm" and "Reconstruction recipe" below.
+
 ### Algorithm: faithful LSST reproduction
 
 The `det_bkgd` interpolation is **not** a 2-D bicubic spline on a
@@ -355,30 +365,38 @@ def lsst_bg_image(bg33: np.ndarray, patch_w: int, patch_h: int,
 
 ### Reconstruction recipe
 
-From the file archive alone (no DAS service), reproduce the
-`coadd/bg` flavor pixel-by-pixel:
+The persisted `det_bkgd` FITS file is a serialised
+`lsst.afw.math.BackgroundList` — a *sum* of two `Background` objects.
+To reproduce the DAS `coadd/bg` flavor exactly you need to add both
+contributions to the input coadd:
 
 ```python
 with fits.open("calexp-<F>-<T>-<P>.fits") as cx:
-    coadd = np.asarray(cx[1].data, dtype=float)            # the coadd flavor
-    cx_wcs = WCS(cx[1].header)                              # for the pixel grid
+    coadd = np.asarray(cx[1].data, dtype=float)             # the coadd flavor
 
 with fits.open("det_bkgd-<F>-<T>-<P>.fits") as bg:
-    bg33 = np.asarray(bg[0].data, dtype=float)             # 33x33 binned
+    bg33 = np.asarray(bg[0].data, dtype=float)              # 33x33 binned
+    bg_scalar = float(np.asarray(bg[3].data).flatten()[0])  # 1x1 constant
 
-# Evaluate on the calexp's own pixel grid: out_x = arange(patch_w),
-# out_y = arange(patch_h). For a sub-image, pass the sub-image's
-# patch-pixel coords (computed via WCS) instead.
-det_full = lsst_bg_image(bg33, patch_w=4200, patch_h=4200,
-                         out_x=np.arange(4200, dtype=float),
-                         out_y=np.arange(4200, dtype=float))
+# Evaluate on the calexp's own pixel grid (or any sub-grid). For an
+# arbitrary cutout, pass the cutout's patch-pixel coordinates (computed
+# via WCS) instead of arange(4200).
+det_binned = lsst_bg_image(bg33, patch_w=4200, patch_h=4200,
+                           out_x=np.arange(4200, dtype=float),
+                           out_y=np.arange(4200, dtype=float))
 
-coadd_bg = coadd + det_full           # ≈ what `coadd/bg` would give you
+coadd_bg = coadd + det_binned + bg_scalar
 ```
+
+**Both terms matter.** `det_binned` carries the spatial bg structure;
+`bg_scalar` is a small (~10⁻³ ADU) per-patch / per-band offset stored
+as the second `Background` element. With both terms, the
+reconstruction is **bit-identical to the DAS `coadd/bg` flavor** at
+float-32 precision — see the verification table below.
 
 **Do not sigma-clip the bg33** before interpolation. The DAS service's
 `coadd/bg` was computed using the un-clipped bg model. Clipping
-removes signal the recipe needs.
+removes signal the recipe needs (see "What we got wrong" below).
 
 ### Multi-band verification
 
@@ -403,12 +421,19 @@ with a 60″ cutout, comparing four recipes against the DAS
 
 The faithful LSST algorithm gives **Pearson r = −1.0000 to four
 decimal places** across all three bands and residual std at
-**float-32 precision** (~10⁻⁷ ADU). This is essentially bit-exact
-reconstruction: the DAS `coadd/bg` flavor really is
-`coadd + getImage(det_bkgd) − band_const`. The remaining residual is
-a single per-band **constant offset** (≈ +9.9×10⁻⁴, +3.2×10⁻³,
-+3.8×10⁻³ ADU for G / R / I) — a per-patch / per-band normalisation
-constant outside the bg-interpolation algorithm.
+**float-32 precision** (~10⁻⁷ ADU). The remaining median residual
+is exactly the per-band **HDU[3] scalar** stored in the same file
+as the second `Background` element:
+
+| Band  | HDU[3] scalar        | residual median (with HDU[3] added) | residual std |
+| ----- | -------------------- | ----------------------------------- | ------------ |
+| HSC-G | −9.90×10⁻⁴ ADU       | **−9.9×10⁻¹² ADU** (FP noise)        | 1.0×10⁻⁷     |
+| HSC-R | −3.20×10⁻³ ADU       | **+8.7×10⁻¹¹ ADU** (FP noise)        | 4.6×10⁻⁷     |
+| HSC-I | −3.77×10⁻³ ADU       | **−1.3×10⁻¹⁰ ADU** (FP noise)        | 3.3×10⁻⁷     |
+
+So with both `Background` elements included
+(`getImage(hdu[0]) + hdu[3].value`), the reconstruction is **bit-
+identical** to the DAS `coadd/bg` flavor at float-32 precision.
 
 ![det_bkgd interpolation: bicubic vs LSST-faithful, HSCLA2020 (15548,1,6)](figures/det_bkgd_lsst_recipe_qa.png)
 
@@ -443,20 +468,14 @@ above is the correct picture.
 
 ### Caveats
 
-- **Per-band constant offset** (~1–4 milli-ADU) remains between
-  `(coadd + lsst_getImage(det_bkgd))` and `coadd/bg`. Probably
-  reflects a per-patch / per-band normalisation done outside the
-  bg-interpolation step. For LSB photometry this is already in the
-  noise.
 - **AKIMA needs ≥ 5 valid cells** per column / row. With cells set to
   NaN you can drop below this; the LSST stack falls back via
   `REDUCE_INTERP_ORDER` in that case. Our 33×33 grid is comfortably
   above the minimum even with ~5% cells masked, but keep this in mind
   if you implement aggressive masking on smaller bg grids.
 - **Verified at one (tract, patch) and three bands.** The relationship
-  should hold elsewhere — both bg estimators target the same physical
-  sky structure and the algorithm is a deterministic function of the
-  persisted file — but it has not been swept patch-by-patch.
+  should hold elsewhere — the algorithm is a deterministic function
+  of the persisted file — but it has not been swept patch-by-patch.
 - **Multi-patch stitching is still up to you.** If your science region
   spans two patches, run `lsst_bg_image` on each patch's det_bkgd and
   stitch via the WCS, just like the earlier Perseus example.
