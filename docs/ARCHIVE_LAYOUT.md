@@ -318,8 +318,22 @@ reproduce the bg pixel values:
    `coadd/bg` flavor was computed using exactly this — so to reproduce
    it we must **not** clip those cells.
 
-In Python (using `scipy.interpolate.Akima1DInterpolator`, which calls
-the same Akima-style algorithm GSL exposes via `gsl_interp_akima`):
+**The toolkit ships this algorithm.** `hscla_tool.background` exposes:
+
+- `lsst_cell_centers(width, n_sample)` — pure function reproducing
+  `Background::_setCenOrigSize`.
+- `lsst_background_image(bg_binned, scalar=..., patch_width=..., ...,
+  out_x=..., out_y=...)` — reproduces
+  `BackgroundList::getImage()` (the AKIMA-then-AKIMA sum + scalar).
+- `reconstruct_coadd_bg(calexp_path, det_bkgd_path) -> fits.HDUList` —
+  high-level entry point: open `calexp` and `det_bkgd`, return a new
+  HDUList with the IMAGE HDU's pixels replaced by the bg-corrected
+  values. All other HDUs (mask, variance, PSF model) pass through
+  unchanged.
+- CLI: `hscla coadd-bg <calexp> <det_bkgd>` writes the result FITS.
+
+The Python reference implementation, transcribed for clarity (and
+matching the module's source line-by-line):
 
 ```python
 import numpy as np
@@ -363,36 +377,44 @@ def lsst_bg_image(bg33: np.ndarray, patch_w: int, patch_h: int,
     return out
 ```
 
-### Reconstruction recipe
+### Reconstruction recipe (using `hscla_tool.background`)
 
 The persisted `det_bkgd` FITS file is a serialised
 `lsst.afw.math.BackgroundList` — a *sum* of two `Background` objects.
 To reproduce the DAS `coadd/bg` flavor exactly you need to add both
-contributions to the input coadd:
+contributions to the input coadd. The toolkit's
+`hscla_tool.background.reconstruct_coadd_bg` does this for you:
 
 ```python
-with fits.open("calexp-<F>-<T>-<P>.fits") as cx:
-    coadd = np.asarray(cx[1].data, dtype=float)             # the coadd flavor
+from hscla_tool import background
 
-with fits.open("det_bkgd-<F>-<T>-<P>.fits") as bg:
-    bg33 = np.asarray(bg[0].data, dtype=float)              # 33x33 binned
-    bg_scalar = float(np.asarray(bg[3].data).flatten()[0])  # 1x1 constant
-
-# Evaluate on the calexp's own pixel grid (or any sub-grid). For an
-# arbitrary cutout, pass the cutout's patch-pixel coordinates (computed
-# via WCS) instead of arange(4200).
-det_binned = lsst_bg_image(bg33, patch_w=4200, patch_h=4200,
-                           out_x=np.arange(4200, dtype=float),
-                           out_y=np.arange(4200, dtype=float))
-
-coadd_bg = coadd + det_binned + bg_scalar
+hdul = background.reconstruct_coadd_bg(
+    "calexp-<F>-<T>-<P>.fits",
+    "det_bkgd-<F>-<T>-<P>.fits",
+)
+try:
+    hdul.writeto("calexp_bgcorrected.fits", overwrite=True)
+finally:
+    hdul.close()
 ```
 
-**Both terms matter.** `det_binned` carries the spatial bg structure;
-`bg_scalar` is a small (~10⁻³ ADU) per-patch / per-band offset stored
-as the second `Background` element. With both terms, the
-reconstruction is **bit-identical to the DAS `coadd/bg` flavor** at
-float-32 precision — see the verification table below.
+Or from the shell:
+
+```bash
+hscla coadd-bg calexp-<F>-<T>-<P>.fits det_bkgd-<F>-<T>-<P>.fits
+# -> ./outputs/coadd_bg/calexp-<F>-<T>-<P>_bgcorrected.fits
+```
+
+For a sub-image rather than the whole patch, use
+`background.lsst_background_image` directly with custom `out_x` /
+`out_y`. See its docstring for the parameters.
+
+**Both terms matter.** `det_binned` carries the spatial bg structure
+(33×33 AKIMA-interpolated); `bg_scalar` is a small (~10⁻³ ADU) per-
+patch / per-band offset stored as the second `Background` element.
+With both terms, the reconstruction is **bit-identical to the DAS
+`coadd/bg` flavor** at float-32 precision — see the verification
+table below.
 
 **Do not sigma-clip the bg33** before interpolation. The DAS service's
 `coadd/bg` was computed using the un-clipped bg model. Clipping

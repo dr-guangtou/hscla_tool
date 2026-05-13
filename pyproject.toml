@@ -13,6 +13,7 @@ dependencies = [
     "pyarrow>=17.0",
     "pyyaml>=6.0",
     "requests>=2.32",
+    "scipy>=1.13",
     "tqdm>=4.66",
 ]
 

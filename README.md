@@ -60,9 +60,12 @@ outputs, the 1 TB session rule) is mapped in
   and `download_forced_catalog(...)` (plus a generic
   `download_patch_file(..., kind=)`) hit the HSCLA file tree
   directly, resumable via HTTP `Range:` requests.
+- `hscla_tool.background` — `reconstruct_coadd_bg(calexp_path,
+  det_bkgd_path)` rebuilds the DAS `coadd/bg` flavor locally from a
+  patch's file-archive products (bit-identical at float-32 precision).
 - `hscla` console script — every module above is also reachable as a
-  subcommand (`hscla coverage`, `hscla cutout`, `hscla psf`, …). See
-  the [CLI quick tour](#cli-quick-tour) below.
+  subcommand (`hscla coverage`, `hscla cutout`, `hscla psf`,
+  `hscla coadd-bg`, …). See the [CLI quick tour](#cli-quick-tour) below.
 
 ## Credentials
 
@@ -334,6 +337,10 @@ hscla mirror build mosaic
 # Direct file-tree download (one per-patch FITS)
 hscla archive list 15548 1,6 HSC-I
 hscla archive download 15548 1,6 HSC-I --kind calexp
+
+# Reconstruct the DAS `coadd/bg` flavor locally from a (calexp, det_bkgd) pair
+# (bit-identical at float-32 precision).
+hscla coadd-bg calexp-HSC-I-15548-1,6.fits det_bkgd-HSC-I-15548-1,6.fits
 ```
 
 Exit codes: `0` on success, `2` for "no HSCLA coverage", `3` for

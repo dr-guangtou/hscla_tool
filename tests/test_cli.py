@@ -47,7 +47,7 @@ def test_parser_has_eight_subcommands() -> None:
     )
     assert set(sub_action.choices) == {
         "coverage", "frames", "cutout", "cutouts", "psf", "sql",
-        "crossmatch", "mirror", "archive",
+        "crossmatch", "mirror", "archive", "coadd-bg",
     }
 
 

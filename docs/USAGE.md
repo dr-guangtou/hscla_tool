@@ -216,10 +216,55 @@ difference. Test: `tests/test_cutout.py::test_live_fetch_cutout_coadd_bg_perseus
 > **Note for bulk users:** the `calexp` files in the direct file
 > archive (`/archive/files/la2020/deepCoadd-results/<F>/<T>/<P>/`) are
 > the **`coadd`** flavor (bit-identical at the pixel level), not
-> `coadd/bg`. If you need bg-corrected coadd pixels for LSB work, you
-> must go through the DAS cutout service with `kind='coadd/bg'`. See
-> [`docs/ARCHIVE_LAYOUT.md`](ARCHIVE_LAYOUT.md#calexp-is-the-coadd-flavor-not-coaddbg)
-> for the verification and the residual figure.
+> `coadd/bg`. For bg-corrected coadd pixels at scale, **reconstruct
+> them locally from `calexp + det_bkgd`** — bit-exact recipe in the
+> next subsection. The DAS cutout service with `kind='coadd/bg'` is
+> still the easy choice for a few small regions.
+
+### …reconstruct `coadd/bg` from a local `calexp` + `det_bkgd` (bulk-friendly)
+
+When you've downloaded a whole patch's `calexp` and `det_bkgd` from
+the file archive, you can rebuild the `coadd/bg` flavor pixel-by-
+pixel without touching the DAS cutout service. The reconstruction is
+**bit-identical to a DAS `kind='coadd/bg'` cutout at float-32
+precision** — verified across HSC-G / HSC-R / HSC-I.
+
+**Library:**
+```python
+from hscla_tool import background
+
+# In-memory: returns a new fits.HDUList with the image HDU's pixels
+# replaced by (calexp + lsst_getImage(det_bkgd)). Other HDUs (mask,
+# variance, PSF model, ...) are passed through unchanged.
+hdul = background.reconstruct_coadd_bg(
+    "calexp-HSC-I-15548-1,6.fits",
+    "det_bkgd-HSC-I-15548-1,6.fits",
+)
+try:
+    hdul.writeto("calexp_bgcorrected.fits", overwrite=True)
+finally:
+    hdul.close()
+```
+
+**CLI:**
+```bash
+hscla coadd-bg calexp-HSC-I-15548-1,6.fits det_bkgd-HSC-I-15548-1,6.fits
+# writes ./outputs/coadd_bg/calexp-HSC-I-15548-1,6_bgcorrected.fits
+```
+
+**Pitfalls:**
+- The `calexp` and `det_bkgd` must come from the **same (filter,
+  tract, patch)**. The function does not check filenames; pass the
+  wrong pair and you'll get a `BackgroundError` complaining about
+  shape mismatch — or, if the shapes happen to agree, silently wrong
+  pixels.
+- Don't sigma-clip the bg model. The DAS service used the raw, un-
+  clipped bg; clipping removes signal the recipe needs. See
+  [`docs/ARCHIVE_LAYOUT.md`](ARCHIVE_LAYOUT.md#det_bkgd-fits-carries-the-sky-bg-model-essentially-the-das-bg-correction-with-opposite-sign)
+  for the full story.
+- Multi-patch stitching is up to you. If your science region spans
+  two patches, reconstruct each patch independently and stitch via
+  WCS.
 
 The cache key includes `kind`, so a `coadd` cutout and a `coadd/bg`
 cutout at the same (ra, dec, band, size) live in different cached
@@ -623,6 +668,7 @@ existing logged-in session.
 | `hscla_tool.psf`           | `fetch_psf`, `HscLaPsfClient`, `Psf`, `PsfError`                                                                              | `${HSCLA_TOOL_CACHE}/psfs/`            |
 | `hscla_tool.crossmatch`    | `match`, `CrossmatchError`                                                                                                   | inherits `sql.run_sql` cache           |
 | `hscla_tool.archive`       | `download_patch_file`, `download_coadd_image`, `download_forced_catalog`, `HscLaArchiveClient`, `SUPPORTED_KINDS`, `ArchiveError`, `ArchiveFile` | `${HSCLA_TOOL_CACHE}/archive/<band>/<tract>/<patch>/` |
+| `hscla_tool.background`    | `reconstruct_coadd_bg`, `lsst_background_image`, `lsst_cell_centers`, `BackgroundError` (LSST-faithful coadd/bg recipe) | — (in-memory `HDUList`)                |
 
 ### CLI subcommands
 
@@ -643,6 +689,7 @@ to drop the progress chatter.
 | `hscla mirror status` | List which mirrors exist on disk and their sizes.                                       | Stdout.                                                         |
 | `hscla archive list`  | List file names available for one `(tract, patch, band)`.                               | Stdout, one name per line.                                      |
 | `hscla archive download` | Download one per-patch FITS by `--kind` (default `calexp`).                          | Layout-mirrored cache under `${HSCLA_TOOL_CACHE}/archive/`.     |
+| `hscla coadd-bg`      | Reconstruct the DAS `coadd/bg` flavor locally from a `(calexp, det_bkgd)` pair.         | `./outputs/coadd_bg/<calexp>_bgcorrected.fits`; `--out` to override. |
 
 ### CLI exit codes
 

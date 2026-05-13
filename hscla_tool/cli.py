@@ -46,6 +46,9 @@ from hscla_tool import (
     archive as _archive,
 )
 from hscla_tool import (
+    background as _background,
+)
+from hscla_tool import (
     config as _config,
 )
 from hscla_tool import (
@@ -499,6 +502,43 @@ def _cmd_archive_list(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# coadd-bg (reconstruct the DAS coadd/bg flavor from local files)
+# --------------------------------------------------------------------------- #
+
+
+def _cmd_coadd_bg(args: argparse.Namespace) -> int:
+    """Reconstruct `coadd/bg` from a local (calexp, det_bkgd) pair."""
+
+    quiet = args.quiet
+    calexp_path = Path(args.calexp).expanduser()
+    det_bkgd_path = Path(args.det_bkgd).expanduser()
+    for label, path in (("calexp", calexp_path), ("det_bkgd", det_bkgd_path)):
+        if not path.is_file():
+            print(f"hscla coadd-bg: {label} not found: {path}", file=sys.stderr)
+            return EXIT_BAD_ARGS
+
+    out: Path | None = Path(args.out).expanduser() if args.out else None
+    if out is None:
+        name = f"{calexp_path.stem}_bgcorrected.fits"
+        out = _outputs_subdir("coadd_bg") / name
+
+    _progress(quiet, f"reconstructing coadd/bg from {calexp_path.name} "
+                     f"+ {det_bkgd_path.name}")
+    try:
+        hdul = _background.reconstruct_coadd_bg(calexp_path, det_bkgd_path)
+    except _background.BackgroundError as exc:
+        print(f"hscla coadd-bg: {exc}", file=sys.stderr)
+        return EXIT_FETCH_FAILURE
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    hdul.writeto(out, overwrite=args.force)
+    size_mb = out.stat().st_size / (1024 * 1024)
+    _progress(quiet, f"saved {size_mb:.1f} MB FITS to {out}")
+    print(out)
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
 # argparse wiring
 # --------------------------------------------------------------------------- #
 
@@ -675,6 +715,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ar_ls.add_argument("patch")
     p_ar_ls.add_argument("band")
     p_ar_ls.set_defaults(func=_cmd_archive_list)
+
+    # coadd-bg --------------------------------------------------------- #
+    p_bg = subs.add_parser(
+        "coadd-bg",
+        help=(
+            "Reconstruct the DAS coadd/bg flavor from a locally-downloaded "
+            "(calexp, det_bkgd) pair. The output is bit-identical to a DAS "
+            "kind='coadd/bg' cutout at float-32 precision."
+        ),
+    )
+    p_bg.add_argument("calexp", help="Path to calexp-<F>-<T>-<P>.fits.")
+    p_bg.add_argument("det_bkgd", help="Path to the matching det_bkgd-<F>-<T>-<P>.fits.")
+    p_bg.add_argument(
+        "--out", default=None,
+        help="Output path (default: ./outputs/coadd_bg/<calexp>_bgcorrected.fits).",
+    )
+    p_bg.add_argument(
+        "--force", action="store_true",
+        help="Overwrite the output file if it already exists.",
+    )
+    p_bg.set_defaults(func=_cmd_coadd_bg)
 
     return parser
 
