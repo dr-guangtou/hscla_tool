@@ -32,6 +32,7 @@ package = true
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.10.9",
     "pre-commit>=4.0",
     "pytest>=8.3",
     "ruff>=0.7",
