@@ -43,7 +43,8 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_RELEASE = "la2020"
 DEFAULT_OUT_FORMAT = "csv"
-DEFAULT_HTTP_TIMEOUT = 60.0           # seconds, per HTTP call
+DEFAULT_HTTP_TIMEOUT = 60.0           # seconds, per HTTP read (each chunk)
+DEFAULT_CONNECT_TIMEOUT = 15.0        # seconds, TCP/TLS handshake budget
 DEFAULT_JOB_TIMEOUT = 45 * 60.0       # seconds, total wall time for run_sql
 DEFAULT_POLL_INITIAL = 1.0            # seconds, first sleep
 DEFAULT_POLL_MAX = 60.0               # seconds, ceiling on the backoff
@@ -153,7 +154,12 @@ class HscLaClient:
             "clientVersion": self._client_version,
             **body,
         }
-        resp = self._session.post(url, json=full_body, timeout=self.timeout, stream=stream)
+        resp = self._session.post(
+            url,
+            json=full_body,
+            timeout=(DEFAULT_CONNECT_TIMEOUT, self.timeout),
+            stream=stream,
+        )
         if not stream and resp.status_code >= 400:
             raise SqlError(f"{endpoint_key} -> {resp.status_code}: {resp.text.strip()[:400]}")
         return resp
@@ -234,10 +240,18 @@ class HscLaClient:
     ) -> Job:
         """Poll until the job reaches a terminal status, with exponential backoff."""
 
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        deadline = started + timeout
         interval = poll_initial
+        poll_count = 0
         while True:
             job = self.job_status(job_id)
+            poll_count += 1
+            elapsed = time.monotonic() - started
+            LOGGER.info(
+                "job %d poll #%d status=%s elapsed=%.0fs",
+                job.id, poll_count, job.status, elapsed,
+            )
             if job.status in self._terminal:
                 LOGGER.info("job %d finished with status=%s", job.id, job.status)
                 if job.status != "done":
@@ -251,7 +265,7 @@ class HscLaClient:
                     f"job {job_id} still {job.status!r} after {timeout:.0f} s; "
                     f"cancel it manually or call wait_for_job with a larger timeout."
                 )
-            sleep(min(interval, deadline - now))
+            sleep(max(0.0, min(interval, deadline - now)))
             interval = min(interval * 2.0, poll_max)
 
     def download_job(self, job_id: int, dest: Path) -> Path:
