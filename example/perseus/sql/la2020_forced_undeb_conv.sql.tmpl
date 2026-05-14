@@ -1,0 +1,36 @@
+SELECT
+  t.object_id,
+  t.g_undeblended_convolvedflux_2_20_flag,
+  t.g_undeblended_convolvedflux_2_20_flux,
+  t.g_undeblended_convolvedflux_2_20_fluxerr,
+  t.g_undeblended_convolvedflux_3_20_flag,
+  t.g_undeblended_convolvedflux_3_20_flux,
+  t.g_undeblended_convolvedflux_3_20_fluxerr,
+  t.i_undeblended_convolvedflux_2_20_flag,
+  t.i_undeblended_convolvedflux_2_20_flux,
+  t.i_undeblended_convolvedflux_2_20_fluxerr,
+  t.i_undeblended_convolvedflux_3_20_flag,
+  t.i_undeblended_convolvedflux_3_20_flux,
+  t.i_undeblended_convolvedflux_3_20_fluxerr,
+  t.r_undeblended_convolvedflux_2_20_flag,
+  t.r_undeblended_convolvedflux_2_20_flux,
+  t.r_undeblended_convolvedflux_2_20_fluxerr,
+  t.r_undeblended_convolvedflux_3_20_flag,
+  t.r_undeblended_convolvedflux_3_20_flux,
+  t.r_undeblended_convolvedflux_3_20_fluxerr,
+  t.y_undeblended_convolvedflux_2_20_flag,
+  t.y_undeblended_convolvedflux_2_20_flux,
+  t.y_undeblended_convolvedflux_2_20_fluxerr,
+  t.y_undeblended_convolvedflux_3_20_flag,
+  t.y_undeblended_convolvedflux_3_20_flux,
+  t.y_undeblended_convolvedflux_3_20_fluxerr,
+  t.z_undeblended_convolvedflux_2_20_flag,
+  t.z_undeblended_convolvedflux_2_20_flux,
+  t.z_undeblended_convolvedflux_2_20_fluxerr,
+  t.z_undeblended_convolvedflux_3_20_flag,
+  t.z_undeblended_convolvedflux_3_20_flux,
+  t.z_undeblended_convolvedflux_3_20_fluxerr
+FROM la2020.forced_undeb_conv AS t
+INNER JOIN la2020.forced AS f ON f.object_id = t.object_id
+WHERE f.isprimary
+  AND tractSearch(f.object_id, {tract})

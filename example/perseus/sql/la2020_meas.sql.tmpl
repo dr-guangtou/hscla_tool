@@ -1,0 +1,21 @@
+SELECT
+  t.object_id,
+  t.g_cmodel_ellipse_11,
+  t.g_cmodel_ellipse_12,
+  t.g_cmodel_ellipse_22,
+  t.i_cmodel_ellipse_11,
+  t.i_cmodel_ellipse_12,
+  t.i_cmodel_ellipse_22,
+  t.r_cmodel_ellipse_11,
+  t.r_cmodel_ellipse_12,
+  t.r_cmodel_ellipse_22,
+  t.y_cmodel_ellipse_11,
+  t.y_cmodel_ellipse_12,
+  t.y_cmodel_ellipse_22,
+  t.z_cmodel_ellipse_11,
+  t.z_cmodel_ellipse_12,
+  t.z_cmodel_ellipse_22
+FROM la2020.meas AS t
+INNER JOIN la2020.forced AS f ON f.object_id = t.object_id
+WHERE f.isprimary
+  AND tractSearch(f.object_id, {tract})

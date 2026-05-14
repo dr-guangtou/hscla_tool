@@ -1,0 +1,21 @@
+SELECT
+  t.object_id,
+  t.g_blendedness_abs,
+  t.g_blendedness_flag,
+  t.g_footprintarea_value,
+  t.i_blendedness_abs,
+  t.i_blendedness_flag,
+  t.i_footprintarea_value,
+  t.r_blendedness_abs,
+  t.r_blendedness_flag,
+  t.r_footprintarea_value,
+  t.y_blendedness_abs,
+  t.y_blendedness_flag,
+  t.y_footprintarea_value,
+  t.z_blendedness_abs,
+  t.z_blendedness_flag,
+  t.z_footprintarea_value
+FROM la2020.meas_other AS t
+INNER JOIN la2020.forced AS f ON f.object_id = t.object_id
+WHERE f.isprimary
+  AND tractSearch(f.object_id, {tract})

@@ -1,0 +1,31 @@
+SELECT
+  t.object_id,
+  t.g_psfflux_flag,
+  t.g_psfflux_flux,
+  t.g_psfflux_fluxerr,
+  t.g_undeblended_psfflux_flux,
+  t.g_undeblended_psfflux_fluxerr,
+  t.i_psfflux_flag,
+  t.i_psfflux_flux,
+  t.i_psfflux_fluxerr,
+  t.i_undeblended_psfflux_flux,
+  t.i_undeblended_psfflux_fluxerr,
+  t.r_psfflux_flag,
+  t.r_psfflux_flux,
+  t.r_psfflux_fluxerr,
+  t.r_undeblended_psfflux_flux,
+  t.r_undeblended_psfflux_fluxerr,
+  t.y_psfflux_flag,
+  t.y_psfflux_flux,
+  t.y_psfflux_fluxerr,
+  t.y_undeblended_psfflux_flux,
+  t.y_undeblended_psfflux_fluxerr,
+  t.z_psfflux_flag,
+  t.z_psfflux_flux,
+  t.z_psfflux_fluxerr,
+  t.z_undeblended_psfflux_flux,
+  t.z_undeblended_psfflux_fluxerr
+FROM la2020.forced_flux AS t
+INNER JOIN la2020.forced AS f ON f.object_id = t.object_id
+WHERE f.isprimary
+  AND tractSearch(f.object_id, {tract})
